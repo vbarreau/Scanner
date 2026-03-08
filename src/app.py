@@ -222,6 +222,8 @@ class ScannerApp:
                                after=self._info_frm)
         self._clear_dyn()
         self._show_welcome()
+        if self.scan is not None:
+          self._show_first_slice()
 
     def _clear_dyn(self):
         for w in self._dyn.winfo_children():
@@ -270,7 +272,8 @@ class ScannerApp:
     # ------------------------------------------------------------------ #
 
     def _on_browse(self):
-        self._exit_mode()
+        if self._mode is not None:
+            self._exit_mode()
         folder = filedialog.askdirectory(title="Select DICOM folder")
         if not folder:
             return
@@ -318,7 +321,7 @@ class ScannerApp:
         self._fig.clear()
         ax = self._fig.add_subplot(111)
         ax.set_facecolor("#111111")
-        show_slice(ax, scan.img, mid, 0, scan.x, scan.y, scan.z)
+        show_slice(ax, scan.img, mid, self.scan.normal_axis, scan.x, scan.y, scan.z)
         self._redraw()
 
     def _on_load_error(self, exc: Exception):

@@ -26,24 +26,29 @@ def compute_edges(arr):
 
 def show_slice(ax, img, index, axis, x=None, y=None, z=None):
     ax.clear()
+    vmin, vmax = 0, img.max()
     if axis == 0:
         # img[index, :, :] is a (len(y), len(z)) array
         extent = [y[0], y[-1], z[-1], z[0]] if (y is not None and z is not None) else None
-        ax.imshow(img[index, :, :], cmap='gray', extent=extent, aspect='auto')
+        aspect = abs((extent[1]-extent[0]) / (extent[3]-extent[2])) if extent is not None else 'auto'
+        # print("aspect : ",aspect)
+        ax.imshow(img[index, :, :], cmap='gray', extent=extent, aspect=aspect, vmin=vmin, vmax=vmax)
         ax.set_title(f'Normal 0 (Slice {index})')
         ax.set_xlabel('y' if y is not None else '')
         ax.set_ylabel('z' if z is not None else '')
     elif axis == 1:
         # img[:, index, :] is a (len(x), len(z)) array
         extent = [z[0], z[-1], x[-1], x[0]] if (x is not None and z is not None) else None
-        ax.imshow(img[:, index, :], cmap='gray', extent=extent, aspect='auto')
+        aspect = abs((extent[1]-extent[0]) / (extent[3]-extent[2])) if extent is not None else 'auto'
+        ax.imshow(img[:, index, :], cmap='gray', extent=extent, aspect=aspect, vmin=vmin, vmax=vmax)
         ax.set_title(f'Normal 1 (Slice {index})')
         ax.set_xlabel('y' if y is not None else '')
         ax.set_ylabel('x' if x is not None else '')
     elif axis == 2:
         # img[:, :, index] is a (len(x), len(y)) array
         extent = [y[0], y[-1], x[-1], x[0]] if (x is not None and y is not None) else None
-        ax.imshow(img[:, :, index], cmap='gray', extent=extent, aspect='auto')
+        aspect = abs((extent[3]-extent[2]) / (extent[1]-extent[0])) if extent is not None else 'auto'
+        ax.imshow(img[:, :, index], cmap='gray', extent=extent, aspect=aspect, vmin=vmin, vmax=vmax)
         ax.set_title(f'Normal 2 (Slice {index})')
         ax.set_xlabel('x' if x is not None else '')
         ax.set_ylabel('z' if z is not None else '')
