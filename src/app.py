@@ -50,8 +50,12 @@ class ScannerApp:
         self.root.geometry(f"{WIN_W}x{WIN_H}")
         self.root.resizable(False, False)
 
+        self._default_sl_var: tk.IntVar | None = None
+
         self._build_layout()
         self._show_welcome()
+        # Bind scroll on the matplotlib canvas (works in all modes)
+        self._canvas.get_tk_widget().bind("<MouseWheel>", self._on_canvas_scroll)
 
     # ------------------------------------------------------------------ #
     #  Layout                                                              #
@@ -64,16 +68,24 @@ class ScannerApp:
         self._left.pack(side=tk.LEFT, fill=tk.Y)
         self._left.pack_propagate(False)
 
-        # ── Right panel: embedded matplotlib canvas ──────────────────────
+        # ── Right panel: embedded matplotlib canvas + slice sidebar ─────
         right = tk.Frame(self.root, bg="#111111")
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(0, weight=1)
 
         fig_w = (WIN_W - LEFT_W) / FIG_DPI
         fig_h = WIN_H / FIG_DPI
         self._fig = Figure(figsize=(fig_w, fig_h), dpi=FIG_DPI,
                            facecolor="#111111")
         self._canvas = FigureCanvasTkAgg(self._fig, master=right)
-        self._canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew")
+
+        # Slice sidebar — far right strip, hidden until a scan is loaded
+        self._slice_sidebar = tk.Frame(right, width=28, bg="#111111")
+        self._slice_sidebar.grid_propagate(False)
+        self._slice_sidebar.grid(row=0, column=1, sticky="ns")
+        self._slice_sidebar.grid_remove()
 
         # ── Left panel: static top + scrollable middle + fixed bottom ───
         self._build_left_static()
@@ -199,6 +211,8 @@ class ScannerApp:
         """Hide action buttons; show Save + Cancel bar at the bottom."""
         if cancel_cmd is None:
             cancel_cmd = self._exit_mode
+        self._default_sl_var = None   # disable canvas scroll in sub-modes
+        self._slice_sidebar.grid_remove()
         self._act_frm.pack_forget()
         for w in self._bottom_bar.winfo_children():
             w.destroy()
@@ -317,12 +331,54 @@ class ScannerApp:
     def _show_first_slice(self):
         """Display the middle slice of the loaded scan on the main canvas."""
         scan = self.scan
-        mid = scan.shape[0] // 2
+        axis = scan.normal_axis
+        n = scan.shape[axis]
+        mid = n // 2
+        self._default_sl_var = tk.IntVar(value=mid)
+        self._build_default_controls(n)
+        self._draw_default_slice(mid)
+
+    def _build_default_controls(self, n: int):
+        """Show the flat vertical slice slider in the right sidebar."""
+        self._clear_dyn()
+        for w in self._slice_sidebar.winfo_children():
+            w.destroy()
+        self._slice_sidebar.grid()  # reveal
+
+        tk.Label(self._slice_sidebar, textvariable=self._default_sl_var,
+                 bg="#111111", fg="#555555",
+                 font=("Helvetica", 7)).pack(side=tk.BOTTOM, pady=4)
+
+        sl = tk.Scale(self._slice_sidebar, from_=n - 1, to=0,
+                      orient=tk.VERTICAL,
+                      variable=self._default_sl_var,
+                      resolution=1,
+                      bg="#111111", fg="#111111",
+                      troughcolor="#2c2c2c", activebackground="#555555",
+                      highlightthickness=0, bd=0, relief=tk.FLAT,
+                      showvalue=False, sliderlength=18,
+                      command=lambda v: self._draw_default_slice(int(v)))
+        sl.pack(fill=tk.Y, expand=True, padx=4, pady=(6, 2))
+        self._default_sl = sl
+
+    def _draw_default_slice(self, idx: int):
+        scan = self.scan
         self._fig.clear()
         ax = self._fig.add_subplot(111)
         ax.set_facecolor("#111111")
-        show_slice(ax, scan.img, mid, self.scan.normal_axis, scan.x, scan.y, scan.z)
+        show_slice(ax, scan.img, idx, scan.normal_axis, scan.x, scan.y, scan.z)
         self._redraw()
+
+    def _on_canvas_scroll(self, event):
+        """Scroll through slices with the mouse wheel on the default page."""
+        if self._mode is not None or self.scan is None or self._default_sl_var is None:
+            return
+        axis = self.scan.normal_axis
+        n = self.scan.shape[axis]
+        delta = event.delta // 120  # standardize scroll speed across platforms
+        new_idx = max(0, min(n - 1, self._default_sl_var.get() + delta))
+        self._default_sl_var.set(new_idx)
+        self._draw_default_slice(new_idx)
 
     def _on_load_error(self, exc: Exception):
         self._loading = False
