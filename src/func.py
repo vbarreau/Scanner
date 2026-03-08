@@ -29,6 +29,7 @@ def contrast(img:np.ndarray,val):
     if img.ndim == 3:
         M = img.max()
         out = 4*(1-a)/M**2 * img*img*img + 6*(a-1)/M * img*img + (3-2*a)*img
+        out[img<0]=0
         return out 
     else:
         M= img[:,3].max()

@@ -409,13 +409,16 @@ class ScannerApp:
 
         ix, iy, iz = self._sl_x.get(), self._sl_y.get(), self._sl_z.get()
         img = self.scan.img
-
+        vmin, vmax = 0, img.max()
+        aspects = [(self.scan.z[-1]-self.scan.z[0])/(self.scan.y[-1]-self.scan.y[0]),
+                   (self.scan.z[-1]-self.scan.z[0])/(self.scan.x[-1]-self.scan.x[0]),
+                   (self.scan.y[-1]-self.scan.y[0])/(self.scan.x[-1]-self.scan.x[0])]
         self._im_px = self._ax_px.imshow(
-            img[ix, :, :].T, cmap='gray', aspect='auto', origin='upper')
+            img[ix, :, :].T, cmap='gray', aspect=aspects[0], origin='upper', vmin=vmin, vmax=vmax)
         self._im_py = self._ax_py.imshow(
-            img[:, iy, :].T, cmap='gray', aspect='auto', origin='upper')
+            img[:, iy, :].T, cmap='gray', aspect=aspects[1], origin='upper', vmin=vmin, vmax=vmax)
         self._im_pz = self._ax_pz.imshow(
-            img[:, :, iz], cmap='gray', aspect='auto', origin='upper')
+            img[:, :, iz], cmap='gray', aspect=aspects[2], origin='upper', vmin=vmin, vmax=vmax)
 
         lw, a = 0.8, 0.65
         self._chl_px = [
@@ -441,6 +444,7 @@ class ScannerApp:
         self._im_px.set_data(img[ix, :, :].T)
         self._im_py.set_data(img[:, iy, :].T)
         self._im_pz.set_data(img[:, :, iz])
+        self._im_px.set_clim(0, img.max())
         self._chl_px[0].set_xdata([iy])
         self._chl_px[1].set_ydata([iz])
         self._chl_py[0].set_xdata([ix])
@@ -583,9 +587,13 @@ class ScannerApp:
             left=0.01, right=0.99, top=0.97, bottom=0.03,
         )
         self._anim_mip_ax = {}
+        aspects = [(self.scan.z[-1]-self.scan.z[0])/(self.scan.y[-1]-self.scan.y[0]),
+            (self.scan.z[-1]-self.scan.z[0])/(self.scan.x[-1]-self.scan.x[0]),
+            (self.scan.y[-1]-self.scan.y[0])/(self.scan.x[-1]-self.scan.x[0])]
         for i, key in enumerate(('x', 'y', 'z')):
             ax = self._fig.add_subplot(gs[0, i])
-            ax.imshow(mip[key], cmap='gray', aspect='auto')
+            data = mip[key].T if key in ('x', 'y') else mip[key]
+            ax.imshow(data, cmap='gray', aspect=aspects[i], origin='upper')
             ax.set_title(f"View along {key.upper()}", color='white', fontsize=9, pad=3)
             ax.tick_params(left=False, bottom=False,
                            labelleft=False, labelbottom=False)
@@ -719,9 +727,14 @@ class ScannerApp:
             1, 3, wspace=0.03,
             left=0.01, right=0.99, top=0.95, bottom=0.04,
         )
+        aspects = [(self.scan.z[-1]-self.scan.z[0])/(self.scan.y[-1]-self.scan.y[0]),
+            (self.scan.z[-1]-self.scan.z[0])/(self.scan.x[-1]-self.scan.x[0]),
+            (self.scan.y[-1]-self.scan.y[0])/(self.scan.x[-1]-self.scan.x[0])
+        ]
         for i, (proj, title) in enumerate(zip(projs, titles)):
             ax = self._fig.add_subplot(gs[0, i])
-            ax.imshow(proj, cmap='gray', aspect='auto')
+
+            ax.imshow(proj.T, cmap='gray', aspect=aspects[i])
             ax.set_title(title, color='white', fontsize=10, pad=4)
             ax.tick_params(left=False, bottom=False,
                            labelleft=False, labelbottom=False)
