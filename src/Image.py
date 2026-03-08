@@ -53,6 +53,11 @@ def show_slice(ax, img, index, axis, x=None, y=None, z=None):
         ax.set_xlabel('x' if x is not None else '')
         ax.set_ylabel('z' if z is not None else '')
     ax.axis('auto')
+    # ax.axis('auto') resets autoscaling and may un-invert the y-axis that
+    # imshow set via extent. For axial slices (axis 2) we restore it so that
+    # anterior (small Y_patient = x[0]) stays at the top.
+    if axis == 2 and x is not None:
+        ax.set_ylim(x[-1], x[0])
                   
 def clean_data(list_tranches_path):
     """Returns (sorted_paths, sorted_coords, normal_axis) for valid 512x512 DICOM slices."""
@@ -139,7 +144,11 @@ class Image3D():
         get_idx = idx_fns[self.normal_axis]
 
         for i, tp in enumerate(tqdm(usefull_tranche_path, desc=f"Reading axis {self.normal_axis}", colour='blue')):
-            self.img[get_idx(i)] = np.rot90(tranche.Tranche(tp).pixel_array.astype(float), 1)
+            pixel_arr = tranche.Tranche(tp).pixel_array.astype(float)
+            # For axial slices (normal_axis=2): pixel_array[row,col] maps row→Y_patient (anterior→posterior)
+            # and col→X_patient (right→left). Store directly so imshow gives correct radiological view.
+            # For other axes the previous rotation is kept pending validation with non-axial data.
+            self.img[get_idx(i)] = pixel_arr if self.normal_axis == 2 else np.rot90(pixel_arr, 1)
                 
 
     # Other initialization methods
@@ -272,6 +281,8 @@ class Image3D():
             plt.ylim(top=kwargs['max_freq'])
         if 'range' in kwargs:
             plt.xlim(kwargs['range'])
+        else : 
+            plt.xlim(0, self.img.max())
         ax.set_xlabel('Pixel Value')
         plt.grid(True)
         return ax
@@ -369,13 +380,30 @@ class Image3D():
         img = self.img.astype(np.float32)
         img = (img - img.min()) / (img.max() - img.min() + 1e-8)
 
-        # Step 1 — Orient the volume: rotate the array so `axis` aligns with world Z (turntable up).
-        # np.rot90 operates on the array in-place (returns a view), no centering issues.
-        if axis == 'x':
-            img = np.rot90(img, k=1, axes=(0, 2))   # data X-dim → Z-dim
-        elif axis == 'y':
-            img = np.rot90(img, k=1, axes=(1, 2))   # data Y-dim → Z-dim
-        # axis == 'z': already aligned, no rotation needed
+        # Voxel spacings in mm along each patient axis.
+        # img layout: axis0=Y_patient (self.x), axis1=X_patient (self.y), axis2=Z_patient (self.z)
+        sp0 = abs(float(self.x[1] - self.x[0])) if len(self.x) > 1 else 1.0
+        sp1 = abs(float(self.y[1] - self.y[0])) if len(self.y) > 1 else 1.0
+        sp2 = abs(float(self.z[1] - self.z[0])) if len(self.z) > 1 else 1.0
+
+        # Step 1 — Reorient so the chosen rotation axis becomes vispy axis 1 (TurntableCamera up).
+        if axis == 'z':
+            img = img.transpose(0, 2, 1)   # (Y_pat, Z_pat, X_pat) → Z_patient is up
+            spacings = (sp0, sp2, sp1)
+        elif axis == 'x':
+            img = img.transpose(2, 0, 1)   # (Z_pat, Y_pat, X_pat) → Y_patient is up
+            spacings = (sp2, sp0, sp1)
+        else:  # axis == 'y'
+            spacings = (sp0, sp1, sp2)     # X_patient already at axis 1
+
+        # Resample to isotropic voxels (downsample to coarsest spacing).
+        # This makes each voxel a unit cube in world space so the canvas aspect
+        # ratio alone determines the correct physical proportions — no STTransform needed.
+        from scipy.ndimage import zoom as sp_zoom
+        target_sp = max(spacings)
+        zoom_factors = tuple(s / target_sp for s in spacings)
+        if any(abs(f - 1.0) > 0.02 for f in zoom_factors):
+            img = sp_zoom(img, zoom_factors, order=1, prefilter=False)
 
         # Crop to tight bounding box of non-zero voxels to eliminate surrounding black space
         nz_idx = np.argwhere(img > 0)
@@ -386,9 +414,9 @@ class Image3D():
 
         method = 'additive' if grad else 'mip'
 
-        # Derive canvas size: height = rotation-axis extent, width = max of the two rotating dims
-        nz, ny, nx = img.shape
-        w_raw, h_raw = max(ny, nx), nz
+        # Canvas size: axis1 (up) → height, max(axis0, axis2) → width (rotation envelope)
+        n0, n1, n2 = img.shape
+        w_raw, h_raw = max(n0, n2), n1
         scale = size / max(w_raw, h_raw)
         w, h = round(w_raw * scale), round(h_raw * scale)
 
@@ -404,10 +432,9 @@ class Image3D():
         cam = scene.cameras.TurntableCamera(fov=0, elevation=init_el, azimuth=init_az)
         view.camera = cam
         cam.set_range()
-        # set_range uses the bounding sphere, which over-zooms for flat volumes.
-        # For a turntable around Z: projected height = nz, width max = max(nx,ny) —
-        # exactly the canvas. Override scale_factor for a tight, margin-free fit.
-        cam.scale_factor = nz if init_el == 0 else max(nx, ny)
+        # Override scale_factor for a tight, margin-free fit.
+        # Voxels are now isotropic so nz, ny, nx are proportional to physical mm.
+        cam.scale_factor = n1 if init_el == 0 else max(n0, n2)
 
         # Step 3 — Rotate: pure azimuth sweep around world Z (= chosen axis)
         is_gif = outpath.lower().endswith('.gif')
@@ -416,7 +443,7 @@ class Image3D():
             frames = []
             for i in tqdm(range(n_frames), desc='Generating GIF'):
                 cam.azimuth = init_az + i * (360.0 / n_frames)
-                frames.append(canvas.render(alpha=False))   # (H, W, 3) uint8 RGB
+                frames.append(canvas.render(alpha=False))  
             canvas.close()
             imageio.mimsave(outpath, frames, fps=fps, loop=0)
         else:
@@ -424,7 +451,7 @@ class Image3D():
             writer = cv2.VideoWriter(outpath, fourcc, fps, (w, h))
             for i in tqdm(range(n_frames), desc='Generating Video'):
                 cam.azimuth = init_az + i * (360.0 / n_frames)
-                frame = canvas.render(alpha=False)          # (H, W, 3) uint8 RGB
+                frame = canvas.render(alpha=False)
                 writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
             writer.release()
             canvas.close()

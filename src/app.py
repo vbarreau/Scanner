@@ -470,9 +470,9 @@ class ScannerApp:
                    (self.scan.z[-1]-self.scan.z[0])/(self.scan.x[-1]-self.scan.x[0]),
                    (self.scan.y[-1]-self.scan.y[0])/(self.scan.x[-1]-self.scan.x[0])]
         self._im_px = self._ax_px.imshow(
-            img[ix, :, :].T, cmap='gray', aspect=aspects[0], origin='upper', vmin=vmin, vmax=vmax)
+            img[ix, :, :].T, cmap='gray', aspect=aspects[0], origin='lower', vmin=vmin, vmax=vmax)
         self._im_py = self._ax_py.imshow(
-            img[:, iy, :].T, cmap='gray', aspect=aspects[1], origin='upper', vmin=vmin, vmax=vmax)
+            img[:, iy, :].T, cmap='gray', aspect=aspects[1], origin='lower', vmin=vmin, vmax=vmax)
         self._im_pz = self._ax_pz.imshow(
             img[:, :, iz], cmap='gray', aspect=aspects[2], origin='upper', vmin=vmin, vmax=vmax)
 
@@ -649,7 +649,8 @@ class ScannerApp:
         for i, key in enumerate(('x', 'y', 'z')):
             ax = self._fig.add_subplot(gs[0, i])
             data = mip[key].T if key in ('x', 'y') else mip[key]
-            ax.imshow(data, cmap='gray', aspect=aspects[i], origin='upper')
+            origin = 'lower' if key in ('x', 'y') else 'upper'
+            ax.imshow(data, cmap='gray', aspect=aspects[i], origin=origin)
             ax.set_title(f"View along {key.upper()}", color='white', fontsize=9, pad=3)
             ax.tick_params(left=False, bottom=False,
                            labelleft=False, labelbottom=False)
@@ -682,10 +683,23 @@ class ScannerApp:
             img_r = self.scan.img.astype(np.float32)
             img_r = (img_r - img_r.min()) / (img_r.max() - img_r.min() + 1e-8)
             axis = self._anim['axis']
-            if axis == 'x':
-                img_r = np.rot90(img_r, k=1, axes=(0, 2))
-            elif axis == 'y':
-                img_r = np.rot90(img_r, k=1, axes=(1, 2))
+            scan = self.scan
+            sp0 = abs(float(scan.x[1] - scan.x[0])) if len(scan.x) > 1 else 1.0
+            sp1 = abs(float(scan.y[1] - scan.y[0])) if len(scan.y) > 1 else 1.0
+            sp2 = abs(float(scan.z[1] - scan.z[0])) if len(scan.z) > 1 else 1.0
+            if axis == 'z':
+                img_r = img_r.transpose(0, 2, 1)   # Z_patient → vispy Y (up)
+                spacings = (sp0, sp2, sp1)
+            elif axis == 'x':
+                img_r = img_r.transpose(2, 0, 1)   # Y_patient → vispy Y (up)
+                spacings = (sp2, sp0, sp1)
+            else:  # axis == 'y'
+                spacings = (sp0, sp1, sp2)
+            from scipy.ndimage import zoom as sp_zoom
+            target_sp = max(spacings)
+            zoom_factors = tuple(s / target_sp for s in spacings)
+            if any(abs(f - 1.0) > 0.02 for f in zoom_factors):
+                img_r = sp_zoom(img_r, zoom_factors, order=1, prefilter=False)
             method = 'additive' if self._anim['grad'] else 'mip'
             _pov_map = {'x': (0, 0), 'y': (90, 0), 'z': (0, 90)}
             az, el = _pov_map[self._anim.get('pov', 'x')]
@@ -790,7 +804,12 @@ class ScannerApp:
         for i, (proj, title) in enumerate(zip(projs, titles)):
             ax = self._fig.add_subplot(gs[0, i])
 
-            ax.imshow(proj.T, cmap='gray', aspect=aspects[i])
+            # Projections 0 (X) and 1 (Y): .T puts Z as row axis → origin='lower' puts
+            # inferior at bottom. Projection 2 (Z) is an axial view: no transpose needed.
+            if i < 2:
+                ax.imshow(proj.T, cmap='gray', aspect=aspects[i], origin='lower')
+            else:
+                ax.imshow(proj, cmap='gray', aspect=aspects[i])
             ax.set_title(title, color='white', fontsize=10, pad=4)
             ax.tick_params(left=False, bottom=False,
                            labelleft=False, labelbottom=False)
