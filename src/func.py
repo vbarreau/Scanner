@@ -99,6 +99,13 @@ def apply_gradient(img: np.ndarray, axis: int = 0,
         return img
     else:
         return arr * w
+      
+      
+def clip(img, min_val=0.0, max_val=255.0, delete=True):
+    """Clip values in img to the range [min_val, max_val].
+    If delete=True, values outside the range are set to 0; otherwise they are set to min_val or max_val.
+    """
+    return np.clip(img, min_val, max_val)
 
 if __name__=='__main__':
     exit()

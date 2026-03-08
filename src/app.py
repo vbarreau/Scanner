@@ -25,6 +25,7 @@ if _src_dir not in sys.path:
 
 import Image as ImageModule  # noqa: E402
 from Image import show_slice  # noqa: E402
+from func import clip as func_clip  # noqa: E402
 
 # ── Window geometry ──────────────────────────────────────────────────────────
 WIN_W, WIN_H = 1300, 780
@@ -361,6 +362,15 @@ class ScannerApp:
         tk.Button(frm_pr, text="Apply compress",
                   command=self._plot_apply_compress).pack(fill=tk.X, pady=1)
 
+        img_min = int(self.scan.img.min())
+        img_max = int(self.scan.img.max())
+        self._sl_clip_min = self._slider(frm_pr, "Clip min",
+                                         img_min, img_max, img_min)
+        self._sl_clip_max = self._slider(frm_pr, "Clip max",
+                                         img_min, img_max, img_max)
+        tk.Button(frm_pr, text="Apply clip",
+                  command=self._plot_apply_clip).pack(fill=tk.X, pady=1)
+
         self._bind_scroll(self._dyn)
 
     # ── Right canvas ─────────────────────────────────────────────────────
@@ -451,6 +461,14 @@ class ScannerApp:
 
     def _plot_apply_compress(self):
         self.scan.compress(self._sl_seuil.get(), 0.8)
+        self._plot_update_slices()
+        self._plot_draw_hist()
+        self._redraw()
+
+    def _plot_apply_clip(self):
+        self.scan.img = func_clip(self.scan.img,
+                                  self._sl_clip_min.get(),
+                                  self._sl_clip_max.get())
         self._plot_update_slices()
         self._plot_draw_hist()
         self._redraw()
