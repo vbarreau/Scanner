@@ -7,6 +7,7 @@ from skimage import measure
 import trimesh
 from pydicom.errors import InvalidDicomError
 import cv2
+import imageio
 from func import compress, contrast, apply_gradient
 import tranche
 from vispy import scene
@@ -336,7 +337,7 @@ class Image3D():
             raise RuntimeError(f"Failed to export STEP file: {e}")
         
 
-    def rotation_video(self, outpath='scan_anim.mp4', n_frames=72, size=512, grad=False, axis='z', pov='x'):
+    def rotation_video(self, outpath='scan_anim.mp4', n_frames=72, size=512, grad=False, axis='z', pov='x', fps=10):
         """Saves a video of the 3D image rotating around a chosen axis using Vispy GPU rendering.
 
         Three explicit steps:
@@ -345,13 +346,14 @@ class Image3D():
           3. Sweep azimuth 0→360° — a clean turntable rotation around `axis`.
 
         Args:
-            outpath:  output .mp4 path
+            outpath:  output path — .mp4 or .gif
             n_frames: number of frames (default 72 = 5° steps for a full 360°)
             size:     pixel resolution of the longest side (the other side is scaled proportionally)
             grad:     if True, use additive (X-ray) rendering; if False, use MIP
             axis:     data axis to rotate around — 'x', 'y', or 'z' (default)
             pov:      camera starting side — 'x' (default, side view),
                       'y' (front view), or 'z' (top-down)
+            fps:      frames per second (default 10)
         """
         if axis not in ('x', 'y', 'z'):
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
@@ -403,16 +405,24 @@ class Image3D():
         cam.scale_factor = nz if init_el == 0 else max(nx, ny)
 
         # Step 3 — Rotate: pure azimuth sweep around world Z (= chosen axis)
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        writer = cv2.VideoWriter(outpath, fourcc, 10, (w, h))
+        is_gif = outpath.lower().endswith('.gif')
 
-        for i in tqdm(range(n_frames), desc='Generating Video'):
-            cam.azimuth = init_az + i * (360.0 / n_frames)
-            frame = canvas.render(alpha=False)          # (H, W, 3) uint8 RGB
-            writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-
-        writer.release()
-        canvas.close()
+        if is_gif:
+            frames = []
+            for i in tqdm(range(n_frames), desc='Generating GIF'):
+                cam.azimuth = init_az + i * (360.0 / n_frames)
+                frames.append(canvas.render(alpha=False))   # (H, W, 3) uint8 RGB
+            canvas.close()
+            imageio.mimsave(outpath, frames, fps=fps, loop=0)
+        else:
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(outpath, fourcc, fps, (w, h))
+            for i in tqdm(range(n_frames), desc='Generating Video'):
+                cam.azimuth = init_az + i * (360.0 / n_frames)
+                frame = canvas.render(alpha=False)          # (H, W, 3) uint8 RGB
+                writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+            writer.release()
+            canvas.close()
 
             
             
