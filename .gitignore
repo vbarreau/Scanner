@@ -1,0 +1,29 @@
+# Virtual environment (venv installed at project root)
+Scripts/
+Lib/
+share/
+pyvenv.cfg
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Personal scan data
+Mes_scans/
+scna_dicom/
+src/scan_sept.py
+
+# Generated outputs
+Animation/
+results/
+Media/
+
+# WIP files
+tutorial.py
+tuto.ipynb
+workbench.ipynb
+workbench.py
+
+Exemples/

@@ -1,0 +1,10 @@
+numpy
+pydicom
+tqdm
+matplotlib
+scipy
+scikit-image
+trimesh
+opencv-python
+vispy
+PyOpenGL
