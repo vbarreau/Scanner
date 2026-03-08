@@ -53,6 +53,7 @@ def clean_data(list_tranches_path):
     n = len(list_tranches_path)
     paths = np.empty(n, dtype=object)
     coords = np.empty(n, dtype=float)
+    acq_numbers = np.empty(n, dtype=object)
     normal_axis = None
     count = 0
     for tp in list_tranches_path:
@@ -62,12 +63,18 @@ def clean_data(list_tranches_path):
             if t.Rows == 512 and t.Columns == 512:
                 paths[count] = tp
                 coords[count] = t.SliceLocation
+                acq_numbers[count] = getattr(t, 'AcquisitionNumber', None)
                 count += 1
         except InvalidDicomError:
             continue
     if count == 0:
         raise InvalidDicomError(f'No valid DICOM files found\nLast detected axis = {normal_axis}')
-    paths, coords = paths[:count], coords[:count]
+    paths, coords, acq_numbers = paths[:count], coords[:count], acq_numbers[:count]
+    # Keep only slices from the most common AcquisitionNumber
+    unique, counts = np.unique(acq_numbers, return_counts=True)
+    majority = unique[np.argmax(counts)]
+    mask = acq_numbers == majority
+    paths, coords = paths[mask], coords[mask]
     idx = np.argsort(coords)
     return paths[idx], coords[idx], normal_axis
     

@@ -31,6 +31,50 @@ class Tranche(FileDataset):
         elif z != 0:
             return 2
         
+    @classmethod
+    def field_values(cls, filepaths, keyword):
+        """Print all distinct values for a given tag keyword across files."""
+        import pydicom as pdc
+        seen = {}
+        for p in filepaths:
+            ds = pdc.dcmread(p)
+            tag = ds.data_element(keyword)
+            val = str(tag.value) if tag is not None else None
+            if val not in seen:
+                seen[val] = p
+        for val, path in seen.items():
+            print(f'{path}: {val}')
+
+    @classmethod
+    def diff_fields(cls, filepaths):
+        """Return the set of tag keyword names whose values differ across files."""
+        import pydicom as pdc
+        datasets = [pdc.dcmread(p) for p in filepaths]
+        # Collect all tags present in at least one file (excluding pixel data)
+        all_tags = set()
+        for ds in datasets:
+            for elem in ds:
+                if elem.tag != (0x7FE0, 0x0010):  # skip Pixel Data
+                    all_tags.add(elem.tag)
+        differing = set()
+        for tag in all_tags:
+            values = []
+            for ds in datasets:
+                if tag in ds:
+                    try:
+                        values.append(str(ds[tag].value))
+                    except Exception:
+                        values.append(None)
+                else:
+                    values.append(None)
+            if len(set(values)) > 1:
+                try:
+                    keyword = datasets[0][tag].keyword if tag in datasets[0] else str(tag)
+                except Exception:
+                    keyword = str(tag)
+                differing.add(keyword or str(tag))
+        return differing
+
     def compare(self,other):
         gen_self = self.iterall()
         gen_other = other.iterall()
