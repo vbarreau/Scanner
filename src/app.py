@@ -268,6 +268,7 @@ class ScannerApp:
     # ------------------------------------------------------------------ #
 
     def _on_browse(self):
+        self._exit_mode()
         folder = filedialog.askdirectory(title="Select DICOM folder")
         if not folder:
             return
