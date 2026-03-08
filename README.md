@@ -2,6 +2,8 @@
 
 A Python toolkit for processing DICOM CT scan data: load DICOM series, build 3D images, visualize slices, generate projections, export STL meshes, and render rotation videos.
 
+![CT scan rotation demo](docs/demo.gif)
+
 ## Features
 
 - Load a folder of DICOM files into a 3D NumPy volume
