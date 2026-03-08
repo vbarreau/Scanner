@@ -169,11 +169,13 @@ class ScannerApp:
         act_frm.pack(fill=tk.X, padx=P, pady=(0, 4))
         self._btn_plot = tk.Button(act_frm, text="Edit Image",
                                    command=self._on_mode_plot, width=22)
+        self._btn_rot = tk.Button(act_frm, text="Rotate 3D",
+                                  command=self._on_mode_rotate, width=22)
         self._btn_anim = tk.Button(act_frm, text="Create Animation",
                                    command=self._on_mode_animation, width=22)
         self._btn_proj = tk.Button(act_frm, text="Create pseudo radiography",
                                    command=self._on_mode_projection, width=22)
-        self._action_buttons = [self._btn_plot, self._btn_anim, self._btn_proj]
+        self._action_buttons = [self._btn_plot, self._btn_rot, self._btn_anim, self._btn_proj]
         for btn in self._action_buttons:
             btn.pack(fill=tk.X, pady=2)
 
@@ -737,6 +739,151 @@ class ScannerApp:
                 p.astype(np.uint8),
             )
         messagebox.showinfo("Saved", f"3 projection images saved to:\n{folder}")
+
+    # ================================================================== #
+    #  MODE — Rotate 3D                                                    #
+    # ================================================================== #
+
+    def _on_mode_rotate(self):
+        if self.scan is None:
+            return
+        self._mode = 'rotate'
+        self._rotate_img_backup = self.scan.img.copy()
+        self._rotate_xyz_backup = (self.scan.x.copy(), self.scan.y.copy(), self.scan.z.copy())
+        self._enter_mode("Save", self._rotate_save, cancel_cmd=self._rotate_cancel)
+        self._build_rotate_controls()
+        self._build_rotate_figure()
+
+    # ── Left panel controls ──────────────────────────────────────────────
+
+    def _build_rotate_controls(self):
+        self._clear_dyn()
+
+        frm = self._lframe("Rotate 90°")
+        tk.Label(frm, text="Around X axis", bg="#ebebeb",
+                 font=("Helvetica", 8)).pack(anchor="w")
+        row_x = tk.Frame(frm, bg="#ebebeb")
+        row_x.pack(fill=tk.X, pady=1)
+        tk.Button(row_x, text="X +90°", width=9,
+                  command=lambda: self._rotate_apply((1, 2), 1)).pack(side=tk.LEFT, padx=2)
+        tk.Button(row_x, text="X −90°", width=9,
+                  command=lambda: self._rotate_apply((1, 2), -1)).pack(side=tk.LEFT, padx=2)
+
+        tk.Label(frm, text="Around Y axis", bg="#ebebeb",
+                 font=("Helvetica", 8)).pack(anchor="w")
+        row_y = tk.Frame(frm, bg="#ebebeb")
+        row_y.pack(fill=tk.X, pady=1)
+        tk.Button(row_y, text="Y +90°", width=9,
+                  command=lambda: self._rotate_apply((0, 2), 1)).pack(side=tk.LEFT, padx=2)
+        tk.Button(row_y, text="Y −90°", width=9,
+                  command=lambda: self._rotate_apply((0, 2), -1)).pack(side=tk.LEFT, padx=2)
+
+        tk.Label(frm, text="Around Z axis", bg="#ebebeb",
+                 font=("Helvetica", 8)).pack(anchor="w")
+        row_z = tk.Frame(frm, bg="#ebebeb")
+        row_z.pack(fill=tk.X, pady=1)
+        tk.Button(row_z, text="Z +90°", width=9,
+                  command=lambda: self._rotate_apply((0, 1), 1)).pack(side=tk.LEFT, padx=2)
+        tk.Button(row_z, text="Z −90°", width=9,
+                  command=lambda: self._rotate_apply((0, 1), -1)).pack(side=tk.LEFT, padx=2)
+
+        frm_r = tk.Frame(self._dyn, bg="#ebebeb")
+        frm_r.pack(fill=tk.X, padx=6, pady=4)
+        tk.Button(frm_r, text="Reset", bg="#fff0d0",
+                  command=self._rotate_reset).pack(fill=tk.X)
+
+        self._bind_scroll(self._dyn)
+
+    # ── Right canvas ─────────────────────────────────────────────────────
+
+    def _build_rotate_figure(self):
+        self._fig.clear()
+        self._fig.patch.set_facecolor("#111111")
+        gs = self._fig.add_gridspec(
+            1, 3, wspace=0.03,
+            left=0.01, right=0.99, top=0.95, bottom=0.04,
+        )
+        self._rot_axes = []
+        mip_labels = ("MIP along X", "MIP along Y", "MIP along Z")
+        for i in range(3):
+            ax = self._fig.add_subplot(gs[0, i])
+            ax.set_facecolor("black")
+            ax.set_title(mip_labels[i], color="white", fontsize=9, pad=3)
+            ax.tick_params(left=False, bottom=False,
+                           labelleft=False, labelbottom=False)
+            for sp in ax.spines.values():
+                sp.set_edgecolor("#333333")
+            self._rot_axes.append(ax)
+        self._rotate_redraw_mips()
+
+    def _rotate_redraw_mips(self):
+        img = self.scan.img
+        for i, ax in enumerate(self._rot_axes):
+            ax.clear()
+            ax.set_facecolor("black")
+            mip_labels = ("MIP along X", "MIP along Y", "MIP along Z")
+            ax.set_title(mip_labels[i], color="white", fontsize=9, pad=3)
+            ax.tick_params(left=False, bottom=False,
+                           labelleft=False, labelbottom=False)
+            for sp in ax.spines.values():
+                sp.set_edgecolor("#333333")
+            ax.imshow(img.max(axis=i), cmap="gray", aspect="auto", origin="upper")
+        self._redraw()
+
+    # ── Rotation logic ───────────────────────────────────────────────────
+
+    def _rotate_apply(self, axes: tuple, k: int):
+        """Apply np.rot90 with given axes/k and update x/y/z accordingly."""
+        self.scan.img = np.rot90(self.scan.img, k=k, axes=axes)
+        self.scan.x, self.scan.y, self.scan.z = self._rotated_coords(
+            self.scan.x, self.scan.y, self.scan.z, axes, k)
+        self.scan.shape = self.scan.img.shape
+        self._rotate_redraw_mips()
+
+    @staticmethod
+    def _rotated_coords(x, y, z, axes, k):
+        """Return updated (x, y, z) after np.rot90(img, k, axes).
+
+        np.rot90 with k=1 in the (a0, a1) plane:
+          result[..., new_a0, ..., new_a1, ...] comes from [-a1, +a0].
+          Concretely the new a0-axis gets old a1's coords,
+          and the new a1-axis gets reversed old a0's coords.
+        k=-1 (or k=3) is the opposite: new a0 ← reversed old a1, new a1 ← old a0.
+        """
+        coords = [x, y, z]
+        a0, a1 = axes
+        k = k % 4
+        if k == 1:
+            new_a0 = coords[a1]
+            new_a1 = coords[a0][::-1]
+        elif k == 3:  # same as k=-1
+            new_a0 = coords[a1][::-1]
+            new_a1 = coords[a0]
+        elif k == 2:
+            new_a0 = coords[a0][::-1]
+            new_a1 = coords[a1][::-1]
+        else:  # k == 0, no-op
+            return x, y, z
+        coords[a0] = new_a0
+        coords[a1] = new_a1
+        return coords[0], coords[1], coords[2]
+
+    def _rotate_reset(self):
+        self.scan.img = self._rotate_img_backup.copy()
+        self.scan.x, self.scan.y, self.scan.z = (
+            self._rotate_xyz_backup[0].copy(),
+            self._rotate_xyz_backup[1].copy(),
+            self._rotate_xyz_backup[2].copy(),
+        )
+        self.scan.shape = self.scan.img.shape
+        self._rotate_redraw_mips()
+
+    def _rotate_cancel(self):
+        self._rotate_reset()
+        self._exit_mode()
+
+    def _rotate_save(self):
+        self._exit_mode()
 
     # ------------------------------------------------------------------ #
     #  Entry point                                                         #
