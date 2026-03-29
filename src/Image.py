@@ -73,7 +73,7 @@ def clean_data(list_tranches_path):
             normal_axis = t.normal_axis()
             if t.Rows == 512 and t.Columns == 512:
                 paths[count] = tp
-                coords[count] = t.SliceLocation
+                coords[count] = float(t.ImagePositionPatient[normal_axis])
                 acq_numbers[count] = getattr(t, 'AcquisitionNumber', None)
                 count += 1
         except InvalidDicomError:
