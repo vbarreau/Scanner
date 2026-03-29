@@ -10,7 +10,6 @@ import cv2
 import imageio
 from func import compress, contrast, apply_gradient
 import tranche
-from vispy import scene
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +402,8 @@ class Image3D():
                       'y' (front view), or 'z' (top-down)
             fps:      frames per second (default 10)
         """
+        from vispy import scene  # noqa: PLC0415 — deferred to avoid Qt init at startup
+
         if axis not in ('x', 'y', 'z'):
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
         if pov not in ('x', 'y', 'z'):
@@ -497,6 +498,8 @@ class Image3D():
         Returns:
             frame: rendered RGB image as uint8 ndarray of shape (H, W, 3).
         """
+        from vispy import scene  # noqa: PLC0415 — deferred to avoid Qt init at startup
+
         if axis not in ('x', 'y', 'z'):
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
         if pov not in ('x', 'y', 'z'):

@@ -10,7 +10,7 @@ import sys
 import os
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import ttk
 
 import matplotlib
 matplotlib.use('TkAgg')
@@ -288,7 +288,7 @@ class ScannerApp:
     def _on_browse(self):
         if self._mode is not None:
             self._exit_mode()
-        folder = filedialog.askdirectory(title="Select DICOM folder")
+        folder = tk.filedialog.askdirectory(title="Select DICOM folder")
         if not folder:
             return
         self._folder_var.set(os.path.basename(folder) or folder)
@@ -384,7 +384,7 @@ class ScannerApp:
         self._loading = False
         self._progress.stop()
         self._status_var.set(f"Error: {exc}")
-        messagebox.showerror("Load error", str(exc))
+        tk.messagebox.showerror("Load error", str(exc))
         self._refresh_buttons()
 
     # ================================================================== #
@@ -714,10 +714,10 @@ class ScannerApp:
     #         self._status_var.set("Preview ready.")
     #     except Exception as exc:
     #         self._status_var.set(f"Preview error: {exc}")
-    #         messagebox.showerror("Preview error", str(exc))
+    #         tk.messagebox.showerror("Preview error", str(exc))
 
     def _anim_generate(self):
-        outpath = filedialog.asksaveasfilename(
+        outpath = tk.filedialog.asksaveasfilename(
             title="Save animation as…",
             defaultextension=".mp4",
             filetypes=[("MP4 video", "*.mp4")],
@@ -744,7 +744,7 @@ class ScannerApp:
             self._status_var.set(f"Saved → {os.path.basename(outpath)}")
         except Exception as exc:
             self._status_var.set(f"Render error: {exc}")
-            messagebox.showerror("Render error", str(exc))
+            tk.messagebox.showerror("Render error", str(exc))
 
     # ================================================================== #
     #  MODE — Projection Viewer                                            #
@@ -809,7 +809,7 @@ class ScannerApp:
         self._redraw()
 
     def _proj_save(self):
-        folder = filedialog.askdirectory(title="Save projections to folder…")
+        folder = tk.filedialog.askdirectory(title="Save projections to folder…")
         if not folder:
             return
         for i, proj in enumerate(self._proj_data):
@@ -819,7 +819,7 @@ class ScannerApp:
                 os.path.join(folder, f"projection_{'XYZ'[i]}.png"),
                 p.astype(np.uint8),
             )
-        messagebox.showinfo("Saved", f"3 projection images saved to:\n{folder}")
+        tk.messagebox.showinfo("Saved", f"3 projection images saved to:\n{folder}")
 
     # ================================================================== #
     #  MODE — Rotate 3D                                                    #
