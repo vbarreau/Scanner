@@ -276,7 +276,9 @@ class ScannerApp:
                                    command=self._on_mode_animation, width=22)
         self._btn_proj = tk.Button(act_frm, text="Create pseudo radiography",
                                    command=self._on_mode_projection, width=22)
-        self._action_buttons = [self._btn_plot, self._btn_rot, self._btn_anim, self._btn_proj]
+        self._btn_crop = tk.Button(act_frm, text="Crop",
+                                   command=self._on_mode_crop, width=22)
+        self._action_buttons = [self._btn_plot, self._btn_rot, self._btn_crop, self._btn_anim, self._btn_proj]
         for btn in self._action_buttons:
             btn.pack(fill=tk.X, pady=2)
 
@@ -1067,6 +1069,125 @@ class ScannerApp:
         self._exit_mode()
 
     def _rotate_save(self):
+        self._exit_mode()
+
+    # ================================================================== #
+    #  MODE — Crop                                                         #
+    # ================================================================== #
+
+    def _on_mode_crop(self):
+        if self.scan is None:
+            return
+        self._mode = 'crop'
+        self._enter_mode("Apply Crop", self._crop_save, cancel_cmd=self._exit_mode)
+        self._build_crop_controls()
+        self._build_crop_figure()
+
+    # ── Left panel controls ──────────────────────────────────────────────
+
+    def _build_crop_controls(self):
+        self._clear_dyn()
+        s = self.scan.shape  # (nX, nY, nZ)
+        cx, cy, cz = '#00ff99', '#ff9900', '#4499ff'  # match line colours
+
+        frm = self._lframe("Crop bounds (indices)")
+        for label, n, color, attr in (
+            ("X", s[0], cx, '_rs_crop_x'),
+            ("Y", s[1], cy, '_rs_crop_y'),
+            ("Z", s[2], cz, '_rs_crop_z'),
+        ):
+            tk.Label(frm, text=label, bg="#ebebeb",
+                     font=("Helvetica", 8), fg=color).pack(anchor="w")
+            rs = RangeSlider(frm, 0, n - 1, 0, n - 1,
+                             command=self._crop_update_lines, color=color)
+            rs.pack(fill=tk.X)
+            setattr(self, attr, rs)
+
+        self._bind_scroll(self._dyn)
+
+    # ── Right canvas ─────────────────────────────────────────────────────
+
+    def _build_crop_figure(self):
+        self._fig.clear()
+        self._fig.patch.set_facecolor("#111111")
+        img = self.scan.img
+        nX, nY, nZ = img.shape
+        gs = self._fig.add_gridspec(
+            1, 3, wspace=0.03,
+            left=0.01, right=0.99, top=0.95, bottom=0.04,
+        )
+        # Pixel spacings in mm (use actual step, not just total range / nVoxels)
+        dx = abs(float(self.scan.x[1] - self.scan.x[0])) if nX > 1 else 1.0
+        dy = abs(float(self.scan.y[1] - self.scan.y[0])) if nY > 1 else 1.0
+        dz = abs(float(self.scan.z[1] - self.scan.z[0])) if nZ > 1 else 1.0
+        crop_aspects = [dy / dz, dx / dz, dx / dy]
+
+        mip_labels = ("MIP along X", "MIP along Y", "MIP along Z")
+        self._crop_axes = []
+        for i in range(3):
+            ax = self._fig.add_subplot(gs[0, i])
+            ax.set_facecolor("black")
+            ax.set_title(mip_labels[i], color="white", fontsize=9, pad=3)
+            ax.tick_params(left=False, bottom=False,
+                           labelleft=False, labelbottom=False)
+            for sp in ax.spines.values():
+                sp.set_edgecolor("#333333")
+            ax.imshow(img.max(axis=i), cmap="gray", aspect=crop_aspects[i], origin="upper")
+            self._crop_axes.append(ax)
+
+        # Colour legend: green=X, orange=Y, blue=Z
+        lw, a = 1.2, 0.85
+        cx, cy, cz = '#00ff99', '#ff9900', '#4499ff'
+        # MIP along X (axis=0): shape (nY, nZ) → rows=Y, cols=Z
+        # MIP along Y (axis=1): shape (nX, nZ) → rows=X, cols=Z
+        # MIP along Z (axis=2): shape (nX, nY) → rows=X, cols=Y
+        self._crop_lines = {
+            # X bounds: visible in panels 1 (row) and 2 (row)
+            'x0_1': self._crop_axes[1].axhline(0,       color=cx, lw=lw, alpha=a, ls='--'),
+            'x1_1': self._crop_axes[1].axhline(nX - 1,  color=cx, lw=lw, alpha=a, ls='--'),
+            'x0_2': self._crop_axes[2].axhline(0,       color=cx, lw=lw, alpha=a, ls='--'),
+            'x1_2': self._crop_axes[2].axhline(nX - 1,  color=cx, lw=lw, alpha=a, ls='--'),
+            # Y bounds: visible in panel 0 (row) and panel 2 (col)
+            'y0_0': self._crop_axes[0].axhline(0,       color=cy, lw=lw, alpha=a, ls='--'),
+            'y1_0': self._crop_axes[0].axhline(nY - 1,  color=cy, lw=lw, alpha=a, ls='--'),
+            'y0_2': self._crop_axes[2].axvline(0,       color=cy, lw=lw, alpha=a, ls='--'),
+            'y1_2': self._crop_axes[2].axvline(nY - 1,  color=cy, lw=lw, alpha=a, ls='--'),
+            # Z bounds: visible in panel 0 (col) and panel 1 (col)
+            'z0_0': self._crop_axes[0].axvline(0,       color=cz, lw=lw, alpha=a, ls='--'),
+            'z1_0': self._crop_axes[0].axvline(nZ - 1,  color=cz, lw=lw, alpha=a, ls='--'),
+            'z0_1': self._crop_axes[1].axvline(0,       color=cz, lw=lw, alpha=a, ls='--'),
+            'z1_1': self._crop_axes[1].axvline(nZ - 1,  color=cz, lw=lw, alpha=a, ls='--'),
+        }
+        self._redraw()
+
+    def _crop_update_lines(self):
+        x0, x1 = self._rs_crop_x.get_low(), self._rs_crop_x.get_high()
+        y0, y1 = self._rs_crop_y.get_low(), self._rs_crop_y.get_high()
+        z0, z1 = self._rs_crop_z.get_low(), self._rs_crop_z.get_high()
+
+        self._crop_lines['x0_1'].set_ydata([x0])
+        self._crop_lines['x1_1'].set_ydata([x1])
+        self._crop_lines['x0_2'].set_ydata([x0])
+        self._crop_lines['x1_2'].set_ydata([x1])
+        self._crop_lines['y0_0'].set_ydata([y0])
+        self._crop_lines['y1_0'].set_ydata([y1])
+        self._crop_lines['y0_2'].set_xdata([y0])
+        self._crop_lines['y1_2'].set_xdata([y1])
+        self._crop_lines['z0_0'].set_xdata([z0])
+        self._crop_lines['z1_0'].set_xdata([z1])
+        self._crop_lines['z0_1'].set_xdata([z0])
+        self._crop_lines['z1_1'].set_xdata([z1])
+        self._canvas.draw_idle()
+
+    def _crop_save(self):
+        x0, x1 = self._rs_crop_x.get_low(), self._rs_crop_x.get_high() + 1
+        y0, y1 = self._rs_crop_y.get_low(), self._rs_crop_y.get_high() + 1
+        z0, z1 = self._rs_crop_z.get_low(), self._rs_crop_z.get_high() + 1
+        if x0 >= x1 or y0 >= y1 or z0 >= z1:
+            tk.messagebox.showerror("Invalid crop",
+                                 "Min must be strictly less than Max for each axis.")
+            return
+        self.scan.crop_index([x0, x1], [y0, y1], [z0, z1])
         self._exit_mode()
 
     # ------------------------------------------------------------------ #
