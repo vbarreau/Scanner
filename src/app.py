@@ -586,7 +586,56 @@ class ScannerApp:
             self._ax_pz.axvline(iy, color='red',    lw=lw, alpha=a),
         ]
         self._plot_draw_hist()
+
+        # Pixel-value overlay label in the lower-right corner of the canvas
+        if not hasattr(self, '_pixel_label'):
+            self._pixel_label = tk.Label(
+                self._canvas.get_tk_widget(),
+                text="", bg="#111111", fg="white",
+                font=("Courier", 9), padx=4, pady=2,
+            )
+        self._pixel_label.place(relx=1.0, rely=1.0, anchor="se")
+        self._pixel_label.lift()
+
+        # Connect hover event
+        if hasattr(self, '_plot_hover_cid'):
+            self._canvas.mpl_disconnect(self._plot_hover_cid)
+        self._plot_hover_cid = self._canvas.mpl_connect(
+            'motion_notify_event', self._plot_on_hover)
+
         self._redraw()
+
+    def _plot_on_hover(self, event):
+        axes_data = {
+            id(self._ax_px): ('X', 'y', 'z'),
+            id(self._ax_py): ('Y', 'x', 'z'),
+            id(self._ax_pz): ('Z', 'x', 'y'),
+        }
+        if event.inaxes is None or id(event.inaxes) not in axes_data:
+            self._pixel_label.config(text="")
+            return
+        col, row = int(event.xdata + 0.5), int(event.ydata + 0.5)
+        img = self.scan.img
+        ix = int(self._sl_x.get())
+        iy = int(self._sl_y.get())
+        iz = int(self._sl_z.get())
+        label, ax_id = axes_data[id(event.inaxes)][0], id(event.inaxes)
+        try:
+            if ax_id == id(self._ax_px):
+                # imshow(img[ix, :, :].T) → col=y, row=z
+                c, r = np.clip(col, 0, img.shape[1]-1), np.clip(row, 0, img.shape[2]-1)
+                val = img[ix, c, r]
+            elif ax_id == id(self._ax_py):
+                # imshow(img[:, iy, :].T) → col=x, row=z
+                c, r = np.clip(col, 0, img.shape[0]-1), np.clip(row, 0, img.shape[2]-1)
+                val = img[c, iy, r]
+            else:
+                # imshow(img[:, :, iz]) → col=y, row=x
+                c, r = np.clip(col, 0, img.shape[1]-1), np.clip(row, 0, img.shape[0]-1)
+                val = img[r, c, iz]
+            self._pixel_label.config(text=f"Slice {label}  val={val:.1f}")
+        except Exception:
+            self._pixel_label.config(text="")
 
     def _plot_update_slices(self):
         if not hasattr(self, '_im_px'):
@@ -644,10 +693,19 @@ class ScannerApp:
     def _plot_cancel(self):
         """Reset the image to its original state then exit the mode."""
         self.scan.img = self._plot_img_backup.copy()
+        self._plot_cleanup_hover()
         self._exit_mode()
 
     def _plot_save(self):
+        self._plot_cleanup_hover()
         self._exit_mode()
+
+    def _plot_cleanup_hover(self):
+        if hasattr(self, '_plot_hover_cid'):
+            self._canvas.mpl_disconnect(self._plot_hover_cid)
+            del self._plot_hover_cid
+        if hasattr(self, '_pixel_label'):
+            self._pixel_label.place_forget()
 
     # ================================================================== #
     #  MODE — Animation                                                    #
