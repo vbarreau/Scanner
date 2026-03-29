@@ -48,7 +48,7 @@ class ScannerApp:
         self.root = tk.Tk()
         self.root.title("CT Scanner")
         self.root.geometry(f"{WIN_W}x{WIN_H}")
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
 
         self._default_sl_var: tk.IntVar | None = None
 
