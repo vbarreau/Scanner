@@ -144,7 +144,11 @@ class Image3D():
         get_idx = idx_fns[self.normal_axis]
 
         for i, tp in enumerate(tqdm(usefull_tranche_path, desc=f"Reading axis {self.normal_axis}", colour='blue')):
-            pixel_arr = tranche.Tranche(tp).pixel_array.astype(float)
+            sl = tranche.Tranche(tp)
+            pixel_arr = sl.pixel_array.astype(float)
+            slope = float(getattr(sl, 'RescaleSlope', 1))
+            intercept = float(getattr(sl, 'RescaleIntercept', 0))
+            pixel_arr = pixel_arr * slope + intercept  # convert to Hounsfield Units
             # For axial slices (normal_axis=2): pixel_array[row,col] maps row→Y_patient (anterior→posterior)
             # and col→X_patient (right→left). Store directly so imshow gives correct radiological view.
             # For other axes the previous rotation is kept pending validation with non-axial data.
