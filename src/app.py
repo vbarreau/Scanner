@@ -617,8 +617,7 @@ class ScannerApp:
     def _anim_set(self, key: str, val: str):
         self._anim[key] = val
         self._anim_refresh_colors()
-        if key == 'axis':
-            # Refresh MIP border highlights
+        if key in ('axis', 'pov'):
             self._build_anim_figure()
 
     def _anim_refresh_colors(self):
@@ -646,16 +645,37 @@ class ScannerApp:
         aspects = [(self.scan.z[-1]-self.scan.z[0])/(self.scan.y[-1]-self.scan.y[0]),
             (self.scan.z[-1]-self.scan.z[0])/(self.scan.x[-1]-self.scan.x[0]),
             (self.scan.y[-1]-self.scan.y[0])/(self.scan.x[-1]-self.scan.x[0])]
+        nX, nY, nZ = self.scan.img.shape
+        # For each view: (row_axis, col_axis) — what patient axis maps to rows/cols
+        _view_axes = {'x': ('z', 'y'), 'y': ('z', 'x'), 'z': ('x', 'y')}
+        _view_shape = {'x': (nZ, nY), 'y': (nZ, nX), 'z': (nX, nY)}
+        _axis_style = dict(color='#ff6600', lw=1.2, ls='--', alpha=0.85, zorder=5)
+        rot_axis = self._anim['axis']
         for i, key in enumerate(('x', 'y', 'z')):
             ax = self._fig.add_subplot(gs[0, i])
             data = mip[key].T if key in ('x', 'y') else mip[key]
             origin = 'lower' if key in ('x', 'y') else 'upper'
             ax.imshow(data, cmap='gray', aspect=aspects[i], origin=origin)
+            # Draw rotation axis
+            nrows, ncols = _view_shape[key]
+            row_ax, col_ax = _view_axes[key]
+            if rot_axis == key:
+                # Viewing along the rotation axis: show as a crosshair dot
+                ax.plot((ncols - 1) / 2, (nrows - 1) / 2,
+                        marker='+', color='#ff6600', ms=14, mew=1.8,
+                        alpha=0.9, zorder=5)
+            elif rot_axis == row_ax:
+                # Rotation axis runs along rows → vertical line at center column
+                ax.axvline((ncols - 1) / 2, **_axis_style)
+            else:
+                # Rotation axis runs along columns → horizontal line at center row
+                ax.axhline((nrows - 1) / 2, **_axis_style)
             ax.set_title(f"View along {key.upper()}", color='white', fontsize=9, pad=3)
             ax.tick_params(left=False, bottom=False,
                            labelleft=False, labelbottom=False)
-            color = '#00cc44' if key == self._anim['axis'] else '#333333'
-            lw = 3 if key == self._anim['axis'] else 1
+            pov = self._anim.get('pov', 'x')
+            color = '#add8e6' if key == pov else '#333333'
+            lw = 3 if key == pov else 1
             for sp in ax.spines.values():
                 sp.set_edgecolor(color)
                 sp.set_linewidth(lw)
