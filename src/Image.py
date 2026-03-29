@@ -128,10 +128,11 @@ class Image3D():
     img : 3D numpy array of shape (len(x),len(y),len(z))
     """
 
-    def __init__(self,list_tranches_path):
+    def __init__(self, list_tranches_path, progress_callback=None):
         """Initialize a 3D image by secifying the axis along wich the scan is done and the path to the dicom files.\n
         **normal_axis** : 0 for x, 1 for y, 2 for z.\n
-        **list_tranches_path** : either a list of paths to the dicom files or path to the folder"""
+        **list_tranches_path** : either a list of paths to the dicom files or path to the folder\n
+        **progress_callback** : optional callable(current, total) called after each slice is loaded"""
         # Check if initialize with list or folder path
         if isinstance(list_tranches_path, str):
             L = sorted([list_tranches_path + '/' + f for f in os.listdir(list_tranches_path)])
@@ -170,7 +171,8 @@ class Image3D():
         ]
         get_idx = idx_fns[self.normal_axis]
 
-        for i, tp in enumerate(tqdm(usefull_tranche_path, desc=f"Reading axis {self.normal_axis}", colour='blue')):
+        total_slices = len(usefull_tranche_path)
+        for i, tp in enumerate(usefull_tranche_path):
             sl = tranche.Tranche(tp)
             pixel_arr = sl.pixel_array.astype(float)
             slope = float(getattr(sl, 'RescaleSlope', 1))
@@ -180,6 +182,8 @@ class Image3D():
             # and col→X_patient (right→left). Store directly so imshow gives correct radiological view.
             # For other axes the previous rotation is kept pending validation with non-axial data.
             self.img[get_idx(i)] = pixel_arr if self.normal_axis == 2 else np.rot90(pixel_arr, 1)
+            if progress_callback is not None:
+                progress_callback(i + 1, total_slices)
                 
 
     # Other initialization methods
@@ -384,7 +388,7 @@ class Image3D():
             raise RuntimeError(f"Failed to export STEP file: {e}")
         
 
-    def rotation_video(self, outpath='scan_anim.mp4', n_frames=72, size=512, grad=False, axis='z', pov='x', fps=10):
+    def rotation_video(self, outpath='scan_anim.mp4', n_frames=72, size=512, grad=False, axis='z', pov='x', fps=10, progress_callback=None):
         """Saves a video of the 3D image rotating around a chosen axis using Vispy GPU rendering.
 
         Three explicit steps:
@@ -469,21 +473,25 @@ class Image3D():
 
         if is_gif:
             frames = []
-            for i in tqdm(range(n_frames), desc='Generating GIF'):
+            for i in range(n_frames):
                 cam.azimuth = init_az + i * (360.0 / n_frames)
                 frame = canvas.render(alpha=False)
                 frame = _rotate_frame(frame, init_roll)
-                frames.append(frame)  
+                frames.append(frame)
+                if progress_callback is not None:
+                    progress_callback(i + 1, n_frames)
             canvas.close()
             imageio.mimsave(outpath, frames, fps=fps, loop=0)
         else:
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
             writer = cv2.VideoWriter(outpath, fourcc, fps, (w, h))
-            for i in tqdm(range(n_frames), desc='Generating Video'):
+            for i in range(n_frames):
                 cam.azimuth = init_az + i * (360.0 / n_frames)
                 frame = canvas.render(alpha=False)
                 frame = _rotate_frame(frame, init_roll)
                 writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+                if progress_callback is not None:
+                    progress_callback(i + 1, n_frames)
             writer.release()
             canvas.close()
 

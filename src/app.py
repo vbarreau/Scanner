@@ -253,7 +253,7 @@ class ScannerApp:
         tk.Label(L, textvariable=self._status_var, bg="#ebebeb",
                  fg="#666666", font=("Helvetica", 8),
                  wraplength=240).pack(padx=P, pady=(2, 0))
-        self._progress = ttk.Progressbar(L, mode='indeterminate', length=230)
+        self._progress = ttk.Progressbar(L, mode='determinate', length=230, maximum=100, value=0)
         self._progress.pack(pady=(2, 4))
 
         # Scan info
@@ -390,11 +390,15 @@ class ScannerApp:
         self._refresh_buttons()
         self._status_var.set("Loading DICOM files…")
         self._info_var.set("—")
-        self._progress.start(10)
+        self._progress.config(value=0, maximum=100)
+
+        def _progress_cb(current, total):
+            pct = int(current / total * 100)
+            self.root.after(0, lambda v=pct: self._progress.config(value=v))
 
         def _worker():
             try:
-                scan = ImageModule.Image3D(folder)
+                scan = ImageModule.Image3D(folder, progress_callback=_progress_cb)
                 self.root.after(0, lambda: self._on_load_done(scan))
             except Exception as exc:
                 self.root.after(0, lambda e=exc: self._on_load_error(e))
@@ -404,7 +408,7 @@ class ScannerApp:
     def _on_load_done(self, scan: ImageModule.Image3D):
         self.scan = scan
         self._loading = False
-        self._progress.stop()
+        self._progress.config(value=0)
         p = scan.properties()
         self._status_var.set("Ready.")
         self._info_var.set(
@@ -471,7 +475,7 @@ class ScannerApp:
 
     def _on_load_error(self, exc: Exception):
         self._loading = False
-        self._progress.stop()
+        self._progress.config(value=0)
         self._status_var.set(f"Error: {exc}")
         tk.messagebox.showerror("Load error", str(exc))
         self._refresh_buttons()
@@ -826,15 +830,24 @@ class ScannerApp:
         self.root.after(20, lambda: self._do_render(outpath, n_frames, axis, pov, grad))
 
     def _do_render(self, outpath, n_frames, axis, pov, grad):
+        self._progress.config(maximum=n_frames, value=0)
+
+        def _progress_cb(current, total):
+            self._progress.config(value=current)
+            self.root.update_idletasks()
+
         try:
             self.scan.rotation_video(
                 outpath=outpath, n_frames=n_frames,
                 grad=grad, axis=axis, pov=pov,
+                progress_callback=_progress_cb,
             )
             self._status_var.set(f"Saved → {os.path.basename(outpath)}")
         except Exception as exc:
             self._status_var.set(f"Render error: {exc}")
             tk.messagebox.showerror("Render error", str(exc))
+        finally:
+            self._progress.config(value=0, maximum=100)
 
     # ================================================================== #
     #  MODE — Projection Viewer                                            #
