@@ -696,44 +696,14 @@ class ScannerApp:
         self._redraw()
 
     def _anim_preview(self):
-        from vispy import scene
         self._status_var.set("Rendering preview…")
         self.root.update()
         try:
-            img_r = self.scan.img.astype(np.float32)
-            img_r = (img_r - img_r.min()) / (img_r.max() - img_r.min() + 1e-8)
-            axis = self._anim['axis']
-            scan = self.scan
-            sp0 = abs(float(scan.x[1] - scan.x[0])) if len(scan.x) > 1 else 1.0
-            sp1 = abs(float(scan.y[1] - scan.y[0])) if len(scan.y) > 1 else 1.0
-            sp2 = abs(float(scan.z[1] - scan.z[0])) if len(scan.z) > 1 else 1.0
-            if axis == 'z':
-                img_r = img_r.transpose(0, 2, 1)   # Z_patient → vispy Y (up)
-                spacings = (sp0, sp2, sp1)
-            elif axis == 'x':
-                img_r = img_r.transpose(2, 0, 1)   # Y_patient → vispy Y (up)
-                spacings = (sp2, sp0, sp1)
-            else:  # axis == 'y'
-                spacings = (sp0, sp1, sp2)
-            from scipy.ndimage import zoom as sp_zoom
-            target_sp = max(spacings)
-            zoom_factors = tuple(s / target_sp for s in spacings)
-            if any(abs(f - 1.0) > 0.02 for f in zoom_factors):
-                img_r = sp_zoom(img_r, zoom_factors, order=1, prefilter=False)
-            method = 'additive' if self._anim['grad'] else 'mip'
-            _pov_map = {'x': (0, 0), 'y': (90, 0), 'z': (0, 90)}
-            az, el = _pov_map[self._anim.get('pov', 'x')]
-            canvas = scene.SceneCanvas(size=(600, 360), show=True, bgcolor='black')
-            canvas.show(False)
-            view = canvas.central_widget.add_view()
-            scene.visuals.Volume(img_r, parent=view.scene,
-                                 method=method, cmap='grays', clim=(0, 1))
-            cam = scene.cameras.TurntableCamera(fov=0, elevation=el, azimuth=az)
-            view.camera = cam
-            cam.set_range()
-            frame = canvas.render(alpha=False)
-            canvas.close()
-
+            frame = self.scan.vispy_preview_frame(
+                grad=self._anim['grad'],
+                axis=self._anim['axis'],
+                pov=self._anim.get('pov', 'x'),
+            )
             ax = self._ax_anim_prev
             ax.clear()
             ax.imshow(frame, aspect='auto')

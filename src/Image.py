@@ -13,6 +13,34 @@ import tranche
 from vispy import scene
 
 
+# ---------------------------------------------------------------------------
+# Vispy rendering constants (shared by rotation_video and vispy_preview_frame)
+# ---------------------------------------------------------------------------
+
+# (az, el, roll) per (rotation-axis, camera-pov) combination.
+# After each transpose the patient axes map to different vispy axes:
+#   axis='z': vispy Y=Z_pat(up), vispy Z=X_pat, vispy X=Y_pat
+#   axis='x': vispy Y=X_pat(up), vispy Z=Z_pat, vispy X=Y_pat
+#   axis='y': vispy Y=Y_pat(up), vispy Z=X_pat, vispy X=Z_pat
+_POV_TABLES = {
+    'z': {'x': (0,   0, 0), 'y': (90,  0, 0),  'z': (0,  90, 180)},
+    'x': {'x': (0,  90, 0), 'y': (-90,  0, -90), 'z': (0, 0, 180)},
+    'y': {'x': (0,   0, 90), 'y': (0,  -90, 90),  'z': (90,  0, -90)},
+}
+
+# transpose order and spacing re-ordering for each rotation axis.
+# Spacing indices refer to (sp0, sp1, sp2) = spacings along (self.x, self.y, self.z).
+_AXIS_REORIENT = {
+    'x': {'transpose': (0, 2, 1), 'spacing_idx': (0, 2, 1)},
+    'y': {'transpose': (1, 0, 2), 'spacing_idx': (1, 0, 2)},
+    'z': {'transpose': (2, 0, 1), 'spacing_idx': (2, 0, 1)},
+}
+
+def _rotate_frame(frame, angle):
+    h, w = frame.shape[:2]
+    M = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+    return cv2.warpAffine(frame, M, (w, h))
+
 ############################################################################
 
 def compute_edges(arr):
@@ -390,15 +418,11 @@ class Image3D():
         sp1 = abs(float(self.y[1] - self.y[0])) if len(self.y) > 1 else 1.0
         sp2 = abs(float(self.z[1] - self.z[0])) if len(self.z) > 1 else 1.0
 
-        # Step 1 — Reorient so the chosen rotation axis becomes vispy axis 1 (TurntableCamera up).
-        if axis == 'z':
-            img = img.transpose(0, 2, 1)   # (Y_pat, Z_pat, X_pat) → Z_patient is up
-            spacings = (sp0, sp2, sp1)
-        elif axis == 'x':
-            img = img.transpose(2, 0, 1)   # (Z_pat, Y_pat, X_pat) → Y_patient is up
-            spacings = (sp2, sp0, sp1)
-        else:  # axis == 'y'
-            spacings = (sp0, sp1, sp2)     # X_patient already at axis 1
+        # Step 1 — Reorient so the chosen rotation axis becomes array index 0 (TurntableCamera up).
+        reorient = _AXIS_REORIENT[axis]
+        img = img.transpose(reorient['transpose'])
+        spacings_raw = (sp0, sp1, sp2)
+        spacings = tuple(spacings_raw[i] for i in reorient['spacing_idx'])
 
         # Resample to isotropic voxels (downsample to coarsest spacing).
         # This makes each voxel a unit cube in world space so the canvas aspect
@@ -431,8 +455,7 @@ class Image3D():
         scene.visuals.Volume(img, parent=view.scene, method=method, cmap='grays', clim=(0, 1))
 
         # Step 2 — Place the camera along `pov`
-        _pov_map = {'x': (0, 0), 'y': (90, 0), 'z': (0, 90)}  # (azimuth, elevation)
-        init_az, init_el = _pov_map[pov]
+        init_az, init_el, init_roll = _POV_TABLES[axis][pov]
         cam = scene.cameras.TurntableCamera(fov=0, elevation=init_el, azimuth=init_az)
         view.camera = cam
         cam.set_range()
@@ -447,7 +470,9 @@ class Image3D():
             frames = []
             for i in tqdm(range(n_frames), desc='Generating GIF'):
                 cam.azimuth = init_az + i * (360.0 / n_frames)
-                frames.append(canvas.render(alpha=False))  
+                frame = canvas.render(alpha=False)
+                frame = _rotate_frame(frame, init_roll)
+                frames.append(frame)  
             canvas.close()
             imageio.mimsave(outpath, frames, fps=fps, loop=0)
         else:
@@ -456,12 +481,81 @@ class Image3D():
             for i in tqdm(range(n_frames), desc='Generating Video'):
                 cam.azimuth = init_az + i * (360.0 / n_frames)
                 frame = canvas.render(alpha=False)
+                frame = _rotate_frame(frame, init_roll)
                 writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
             writer.release()
             canvas.close()
 
-            
-            
+    def vispy_preview_frame(self, grad=False, axis='z', pov='x') -> np.ndarray:
+        """Render a single static frame of the volume using Vispy GPU rendering.
+
+        Args:
+            grad:  if True, use additive (X-ray) rendering; if False, use MIP.
+            axis:  data axis pointing up — 'x', 'y', or 'z' (default).
+            pov:   camera side — 'x' (default, side view), 'y' (front), or 'z' (top-down).
+
+        Returns:
+            frame: rendered RGB image as uint8 ndarray of shape (H, W, 3).
+        """
+        if axis not in ('x', 'y', 'z'):
+            raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
+        if pov not in ('x', 'y', 'z'):
+            raise ValueError(f"pov must be 'x', 'y', or 'z', got {pov!r}")
+
+        img = self.img.astype(np.float32)
+        img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+
+        sp0 = abs(float(self.x[1] - self.x[0])) if len(self.x) > 1 else 1.0
+        sp1 = abs(float(self.y[1] - self.y[0])) if len(self.y) > 1 else 1.0
+        sp2 = abs(float(self.z[1] - self.z[0])) if len(self.z) > 1 else 1.0
+
+        reorient = _AXIS_REORIENT[axis]
+        img = img.transpose(reorient['transpose'])
+        spacings_raw = (sp0, sp1, sp2)
+        spacings = tuple(spacings_raw[i] for i in reorient['spacing_idx'])
+
+        from scipy.ndimage import zoom as sp_zoom
+        target_sp = max(spacings)
+        zoom_factors = tuple(s / target_sp for s in spacings)
+        if any(abs(f - 1.0) > 0.02 for f in zoom_factors):
+            img = sp_zoom(img, zoom_factors, order=1, prefilter=False)
+
+        nz_idx = np.argwhere(img > 0)
+        if nz_idx.size:
+            lo = nz_idx.min(axis=0)
+            hi = nz_idx.max(axis=0) + 1
+            img = img[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]]
+
+        method = 'additive' if grad else 'mip'
+        n0, n1, n2 = img.shape
+
+        init_az, init_el, init_roll = _POV_TABLES[axis][pov]
+
+        # Canvas dimensions must match the face the camera is looking at.
+        # After _AXIS_REORIENT: n0=up-axis, n1=vispy-Y, n2=vispy-X for az=0,el=0.
+        if abs(init_el) >= 45:          # top / bottom view  → X–Z face
+            cw, ch, sf = n2, n0, max(n0, n2)
+        elif abs(init_az % 180) >= 45:  # front / back view  → Z–Y face
+            cw, ch, sf = n0, n1, n1
+        else:                           # side view (default) → X–Y face
+            cw, ch, sf = n2, n1, n1
+        if abs(init_roll) == 90:        # roll ±90° swaps the two visible dimensions
+            cw, ch = ch, cw
+
+        canvas = scene.SceneCanvas(size=(cw, ch), show=False, bgcolor='black')
+        view = canvas.central_widget.add_view()
+        scene.visuals.Volume(img, parent=view.scene, method=method, cmap='grays', clim=(0, 1))
+
+        cam = scene.cameras.TurntableCamera(fov=0, elevation=init_el, azimuth=init_az)
+        view.camera = cam
+        cam.set_range()
+        cam.scale_factor = sf
+
+        frame = canvas.render(alpha=False)
+        frame = _rotate_frame(frame, init_roll)
+        canvas.close()
+        return frame
+
 
 #########################################################################################
 
