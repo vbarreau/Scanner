@@ -33,6 +33,95 @@ LEFT_W = 270
 FIG_DPI = 100
 
 
+class RangeSlider(tk.Frame):
+    """Horizontal slider with two draggable handles for a [low, high] range."""
+
+    _R   = 7    # handle radius (px)
+    _PAD = 12   # left/right padding before track ends
+
+    def __init__(self, parent, from_: int, to: int,
+                 init_low: int, init_high: int,
+                 command=None, color: str = '#4499ff', **kw):
+        super().__init__(parent, bg="#ebebeb", **kw)
+        self._from    = from_
+        self._to      = to
+        self._low     = init_low
+        self._high    = init_high
+        self._command = command
+        self._color   = color
+        self._drag    = None   # 'low' | 'high'
+
+        self._cv = tk.Canvas(self, height=36, bg="#ebebeb",
+                             highlightthickness=0, bd=0)
+        self._cv.pack(fill=tk.X)
+        self._cv.bind("<Configure>",       lambda _: self._draw())
+        self._cv.bind("<ButtonPress-1>",   self._press)
+        self._cv.bind("<B1-Motion>",       self._move)
+        self._cv.bind("<ButtonRelease-1>", lambda _: setattr(self, '_drag', None))
+
+    # ── geometry ────────────────────────────────────────────────────────
+
+    def _val2x(self, val):
+        p, w = self._PAD, self._cv.winfo_width()
+        return p + (val - self._from) / max(self._to - self._from, 1) * (w - 2 * p)
+
+    def _x2val(self, x):
+        p, w = self._PAD, self._cv.winfo_width()
+        raw = (x - p) / max(w - 2 * p, 1) * (self._to - self._from) + self._from
+        return int(round(max(self._from, min(self._to, raw))))
+
+    # ── drawing ─────────────────────────────────────────────────────────
+
+    def _draw(self):
+        c = self._cv
+        w = c.winfo_width()
+        if w < 4:
+            return
+        c.delete("all")
+        h, r, p = 36, self._R, self._PAD
+        cy = h - r - 4          # track / handle centre
+        x0, x1 = self._val2x(self._low), self._val2x(self._high)
+        # tracks
+        c.create_line(p, cy, w - p, cy, fill="#cccccc", width=3, capstyle="round")
+        c.create_line(x0, cy, x1, cy, fill=self._color, width=3, capstyle="round")
+        # value labels above handles
+        c.create_text(x0, cy - r - 2, text=str(self._low),
+                      fill="#555555", font=("Helvetica", 7), anchor="s")
+        c.create_text(x1, cy - r - 2, text=str(self._high),
+                      fill="#555555", font=("Helvetica", 7), anchor="s")
+        # handles
+        for x in (x0, x1):
+            c.create_oval(x - r, cy - r, x + r, cy + r,
+                          fill=self._color, outline="white", width=1.5)
+
+    # ── interaction ─────────────────────────────────────────────────────
+
+    def _press(self, ev):
+        x0, x1 = self._val2x(self._low), self._val2x(self._high)
+        self._drag = 'low' if abs(ev.x - x0) <= abs(ev.x - x1) else 'high'
+
+    def _move(self, ev):
+        if self._drag is None:
+            return
+        val = self._x2val(ev.x)
+        if self._drag == 'low':
+            self._low  = min(val, self._high)
+        else:
+            self._high = max(val, self._low)
+        self._draw()
+        if self._command:
+            self._command()
+
+    # ── public API ──────────────────────────────────────────────────────
+
+    def get_low(self):  return self._low
+    def get_high(self): return self._high
+
+    def set(self, low: int, high: int):
+        self._low, self._high = low, high
+        self._draw()
+
+
 class ScannerApp:
     """Main application window for the CT scan processing pipeline."""
 
@@ -426,10 +515,11 @@ class ScannerApp:
 
         img_min = int(self.scan.img.min())
         img_max = int(self.scan.img.max())
-        self._sl_clip_min = self._slider(frm_pr, "Clip min",
-                                         img_min, img_max, img_min)
-        self._sl_clip_max = self._slider(frm_pr, "Clip max",
-                                         img_min, img_max, img_max)
+        tk.Label(frm_pr, text="Clip range", bg="#ebebeb",
+                 font=("Helvetica", 8)).pack(anchor="w")
+        self._rs_clip = RangeSlider(frm_pr, img_min, img_max,
+                                    img_min, img_max)
+        self._rs_clip.pack(fill=tk.X)
         tk.Button(frm_pr, text="Apply clip",
                   command=self._plot_apply_clip).pack(fill=tk.X, pady=1)
 
@@ -533,8 +623,8 @@ class ScannerApp:
 
     def _plot_apply_clip(self):
         self.scan.img = func_clip(self.scan.img,
-                                  self._sl_clip_min.get(),
-                                  self._sl_clip_max.get())
+                                  self._rs_clip.get_low(),
+                                  self._rs_clip.get_high())
         self._plot_update_slices()
         self._plot_draw_hist()
         self._redraw()
