@@ -608,8 +608,8 @@ class ScannerApp:
         # Buttons
         frm_btn = tk.Frame(self._dyn, bg="#ebebeb")
         frm_btn.pack(fill=tk.X, padx=6, pady=3)
-        tk.Button(frm_btn, text="Preview frame",
-                  command=self._anim_preview).pack(fill=tk.X, pady=2)
+        # tk.Button(frm_btn, text="Preview frame",
+        #           command=self._anim_preview).pack(fill=tk.X, pady=2)
 
         self._anim_refresh_colors()
         self._bind_scroll(self._dyn)
@@ -637,7 +637,7 @@ class ScannerApp:
             'z': self.scan.img.max(axis=2),
         }
         gs = self._fig.add_gridspec(
-            2, 3, height_ratios=[3, 2],
+            1, 3, 
             hspace=0.12, wspace=0.03,
             left=0.01, right=0.99, top=0.97, bottom=0.03,
         )
@@ -681,40 +681,40 @@ class ScannerApp:
                 sp.set_linewidth(lw)
             self._anim_mip_ax[key] = ax
 
-        # Preview area (bottom row spans all 3 columns)
-        self._ax_anim_prev = self._fig.add_subplot(gs[1, :])
-        self._ax_anim_prev.set_facecolor("#0d0d0d")
-        self._ax_anim_prev.tick_params(left=False, bottom=False,
-                                       labelleft=False, labelbottom=False)
-        self._ax_anim_prev.text(
-            0.5, 0.5, 'Click "Preview frame" to render a vispy frame.',
-            ha='center', va='center', color='#666666',
-            fontsize=11, transform=self._ax_anim_prev.transAxes,
-        )
-        for sp in self._ax_anim_prev.spines.values():
-            sp.set_edgecolor('#333333')
-        self._redraw()
+        # # Preview area (bottom row spans all 3 columns)
+        # self._ax_anim_prev = self._fig.add_subplot(gs[1, :])
+        # self._ax_anim_prev.set_facecolor("#0d0d0d")
+        # self._ax_anim_prev.tick_params(left=False, bottom=False,
+        #                                labelleft=False, labelbottom=False)
+        # self._ax_anim_prev.text(
+        #     0.5, 0.5, 'Click "Preview frame" to render a vispy frame.',
+        #     ha='center', va='center', color='#666666',
+        #     fontsize=11, transform=self._ax_anim_prev.transAxes,
+        # )
+        # for sp in self._ax_anim_prev.spines.values():
+        #     sp.set_edgecolor('#333333')
+        # self._redraw()
 
-    def _anim_preview(self):
-        self._status_var.set("Rendering preview…")
-        self.root.update()
-        try:
-            frame = self.scan.vispy_preview_frame(
-                grad=self._anim['grad'],
-                axis=self._anim['axis'],
-                pov=self._anim.get('pov', 'x'),
-            )
-            ax = self._ax_anim_prev
-            ax.clear()
-            ax.imshow(frame, aspect='auto')
-            ax.set_title("Vispy preview", color='white', fontsize=9, pad=3)
-            ax.tick_params(left=False, bottom=False,
-                           labelleft=False, labelbottom=False)
-            self._redraw()
-            self._status_var.set("Preview ready.")
-        except Exception as exc:
-            self._status_var.set(f"Preview error: {exc}")
-            messagebox.showerror("Preview error", str(exc))
+    # def _anim_preview(self):
+    #     self._status_var.set("Rendering preview…")
+    #     self.root.update()
+    #     try:
+    #         frame = self.scan.vispy_preview_frame(
+    #             grad=self._anim['grad'],
+    #             axis=self._anim['axis'],
+    #             pov=self._anim.get('pov', 'x'),
+    #         )
+    #         ax = self._ax_anim_prev
+    #         ax.clear()
+    #         ax.imshow(frame, aspect='auto')
+    #         ax.set_title("Vispy preview", color='white', fontsize=9, pad=3)
+    #         ax.tick_params(left=False, bottom=False,
+    #                        labelleft=False, labelbottom=False)
+    #         self._redraw()
+    #         self._status_var.set("Preview ready.")
+    #     except Exception as exc:
+    #         self._status_var.set(f"Preview error: {exc}")
+    #         messagebox.showerror("Preview error", str(exc))
 
     def _anim_generate(self):
         outpath = filedialog.asksaveasfilename(
