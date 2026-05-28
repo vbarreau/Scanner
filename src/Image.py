@@ -184,7 +184,9 @@ class Image3D():
             self.img[get_idx(i)] = pixel_arr if self.normal_axis == 2 else np.rot90(pixel_arr, 1)
             if progress_callback is not None:
                 progress_callback(i + 1, total_slices)
-                
+
+        self.spline_points = []   # list of [xi, yi, zi] voxel-index control points
+        self.spline = None        # (tck, u) from splprep, or None
 
     # Other initialization methods
     def copy(self):

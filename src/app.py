@@ -18,6 +18,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import numpy as np
 import cv2
+from scipy.interpolate import splev
 
 _src_dir = os.path.dirname(os.path.abspath(__file__))
 if _src_dir not in sys.path:
@@ -26,6 +27,7 @@ if _src_dir not in sys.path:
 import Image as ImageModule  # noqa: E402
 from Image import show_slice  # noqa: E402
 from func import clip as func_clip  # noqa: E402
+from spline_editor import SplineEditor  # noqa: E402
 
 # ── Window geometry ──────────────────────────────────────────────────────────
 WIN_W, WIN_H = 1300, 780
@@ -278,7 +280,10 @@ class ScannerApp:
                                    command=self._on_mode_projection, width=22)
         self._btn_crop = tk.Button(act_frm, text="Crop",
                                    command=self._on_mode_crop, width=22)
-        self._action_buttons = [self._btn_plot, self._btn_rot, self._btn_crop, self._btn_anim, self._btn_proj]
+        self._btn_spline = tk.Button(act_frm, text="Define Spline",
+                                     command=self._on_mode_spline, width=22)
+        self._action_buttons = [self._btn_plot, self._btn_rot, self._btn_crop,
+                                 self._btn_anim, self._btn_proj, self._btn_spline]
         for btn in self._action_buttons:
             btn.pack(fill=tk.X, pady=2)
 
@@ -1270,6 +1275,201 @@ class ScannerApp:
                                  "Min must be strictly less than Max for each axis.")
             return
         self.scan.crop_index([x0, x1], [y0, y1], [z0, z1])
+        self._exit_mode()
+
+    # ================================================================== #
+    #  MODE — Define Spline                                               #
+    # ================================================================== #
+
+    def _on_mode_spline(self):
+        if self.scan is None:
+            return
+        self._mode = 'spline'
+        self._enter_mode("Done", self._spline_save, cancel_cmd=self._spline_cancel)
+        self._build_spline_figure()
+        self._build_spline_controls()
+        self._spline_editor.set_axis(0)
+
+    # ── Left panel controls ──────────────────────────────────────────────
+
+    def _build_spline_controls(self):
+        self._clear_dyn()
+
+        frm_ax = self._lframe("View axis")
+        row = tk.Frame(frm_ax, bg="#ebebeb")
+        row.pack()
+        self._spline_axis_btns = {}
+        for i, label in enumerate(('X', 'Y', 'Z')):
+            b = tk.Button(row, text=label, width=5,
+                          command=lambda a=i: self._spline_set_axis(a))
+            b.pack(side=tk.LEFT, padx=2)
+            self._spline_axis_btns[i] = b
+
+        frm_pts = self._lframe("Points")
+        self._spline_count_var = tk.StringVar(value="Points: 0")
+        tk.Label(frm_pts, textvariable=self._spline_count_var,
+                 bg="#ebebeb", font=("Courier", 8)).pack(anchor="w")
+        tk.Button(frm_pts, text="Remove last",
+                  command=self._spline_remove_last).pack(fill=tk.X, pady=2)
+        tk.Button(frm_pts, text="Clear all",
+                  command=self._spline_clear_all).pack(fill=tk.X, pady=1)
+
+        frm_step = self._lframe("Export STEP")
+        self._sl_step_radius = self._slider(frm_step, "Tube radius (mm)", 1, 50, 5)
+        tk.Button(frm_step, text="To STEP…",
+                  command=self._spline_export_step).pack(fill=tk.X, pady=2)
+
+        self._spline_refresh_axis_colors()
+        self._bind_scroll(self._dyn)
+
+    def _spline_set_axis(self, axis: int):
+        self._spline_editor.set_axis(axis)
+        self._spline_refresh_axis_colors()
+        self._spline_update_nav_label()
+
+    def _spline_cycle_axis(self, delta: int):
+        new_axis = (self._spline_editor._axis + delta) % 3
+        self._spline_set_axis(new_axis)
+
+    def _spline_refresh_axis_colors(self):
+        current = self._spline_editor._axis
+        colors = {0: '#90ee90', 1: '#add8e6', 2: '#ffcc88'}
+        for i, b in self._spline_axis_btns.items():
+            b.config(bg=colors[i] if i == current else 'SystemButtonFace')
+
+    def _spline_update_nav_label(self):
+        labels = {0: 'View along X', 1: 'View along Y', 2: 'View along Z'}
+        self._spline_nav_text.set_text(labels[self._spline_editor._axis])
+        self._canvas.draw_idle()
+
+    def _spline_remove_last(self):
+        pts = self._spline_editor._points
+        if pts:
+            pts.pop()
+            self._spline_editor.redraw()
+
+    def _spline_clear_all(self):
+        self._spline_editor._points.clear()
+        self._spline_editor.redraw()
+
+    def _spline_export_step(self):
+        from spline_to_step import spline_to_step
+        result = self._spline_editor.get_spline()
+        if result is None:
+            messagebox.showwarning("Export STEP", "Need at least 2 points to export.")
+            return
+        tck, u = result
+        n_pts = max(100, len(self._spline_editor._points) * 20)
+        u_fine = np.linspace(u[0], u[-1], n_pts)
+        xi, yi, zi = splev(u_fine, tck)
+        # Convert voxel indices → physical mm using the scan coordinate arrays
+        assert self.scan is not None
+        ix = np.arange(len(self.scan.x), dtype=float)
+        iy = np.arange(len(self.scan.y), dtype=float)
+        iz = np.arange(len(self.scan.z), dtype=float)
+        pts_mm = list(zip(
+            np.interp(xi, ix, self.scan.x.astype(float)),
+            np.interp(yi, iy, self.scan.y.astype(float)),
+            np.interp(zi, iz, self.scan.z.astype(float)),
+        ))
+        outpath = filedialog.asksaveasfilename(
+            title="Save STEP file",
+            defaultextension=".step",
+            filetypes=[("STEP files", "*.step *.stp"), ("All files", "*.*")],
+            initialfile="spline.step",
+        )
+        if not outpath:
+            return
+        radius = float(self._sl_step_radius.get())
+        try:
+            self._status_var.set("Exporting STEP…")
+            self.root.update_idletasks()
+            spline_to_step(pts_mm, outpath, radius=radius, downsample=4)
+            self._status_var.set(f"STEP saved → {os.path.basename(outpath)}")
+        except Exception as exc:
+            self._status_var.set(f"STEP export error: {exc}")
+            messagebox.showerror("STEP export error", str(exc))
+
+    # ── Right canvas ─────────────────────────────────────────────────────
+
+    def _build_spline_figure(self):
+        from matplotlib.widgets import Button as MplButton
+
+        self._fig.clear()
+        self._fig.patch.set_facecolor("#111111")
+
+        # Main image axes — leave bottom 10 % for the navigation bar
+        self._ax_spline = self._fig.add_axes([0.01, 0.11, 0.98, 0.87])
+
+        # Navigation bar background
+        ax_nav = self._fig.add_axes([0.0, 0.0, 1.0, 0.10])
+        ax_nav.set_facecolor("#1a1a1a")
+        ax_nav.axis('off')
+
+        # ◄ and ► buttons
+        ax_prev = self._fig.add_axes([0.10, 0.015, 0.14, 0.065])
+        ax_next = self._fig.add_axes([0.76, 0.015, 0.14, 0.065])
+        ax_lbl  = self._fig.add_axes([0.35, 0.015, 0.30, 0.065])
+
+        self._spline_btn_prev = MplButton(ax_prev, '◄  Prev',
+                                          color='#222222', hovercolor='#3a3a3a')
+        self._spline_btn_next = MplButton(ax_next, 'Next  ►',
+                                          color='#222222', hovercolor='#3a3a3a')
+        for btn in (self._spline_btn_prev, self._spline_btn_next):
+            btn.label.set_color('white')
+            btn.label.set_fontsize(10)
+
+        ax_lbl.set_facecolor("#1a1a1a")
+        ax_lbl.axis('off')
+        self._spline_nav_text = ax_lbl.text(
+            0.5, 0.5, 'View along X',
+            ha='center', va='center',
+            color='white', fontsize=11, fontweight='bold',
+            transform=ax_lbl.transAxes,
+        )
+
+        self._spline_btn_prev.on_clicked(lambda _: self._spline_cycle_axis(-1))
+        self._spline_btn_next.on_clicked(lambda _: self._spline_cycle_axis(+1))
+
+        # Build editor and wire the point-count callback
+        self._spline_editor = SplineEditor(
+            self._fig, self._ax_spline, self.scan,
+            on_changed=lambda n: self._spline_count_var.set(f"Points: {n}"),
+        )
+        self._spline_editor.connect()
+
+    # ── Save / cancel ────────────────────────────────────────────────────
+
+    def _spline_save(self):
+        self._spline_editor.disconnect()
+        self._spline_btn_prev.disconnect_events()
+        self._spline_btn_next.disconnect_events()
+        self.scan.spline_points = self._spline_editor.get_points()
+        self.scan.spline        = self._spline_editor.get_spline()
+        self._export_spline_to_file()
+        self._exit_mode()
+
+    def _export_spline_to_file(self):
+        spline = self.scan.spline
+        if spline is None:
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Save spline points",
+        )
+        if not path:
+            return
+        tck, u = spline
+        u_fine = np.linspace(u[0], u[-1], max(500, len(u) * 10))
+        x, y, z = splev(u_fine, tck)
+        data = np.column_stack([x, y, z])
+        np.savetxt(path, data, delimiter=",", header="x,y,z", comments="")
+
+    def _spline_cancel(self):
+        self._spline_editor.disconnect()
+        self._spline_btn_prev.disconnect_events()
+        self._spline_btn_next.disconnect_events()
         self._exit_mode()
 
     # ------------------------------------------------------------------ #

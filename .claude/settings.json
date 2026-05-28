@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NonInteractive -File C:\\Users\\vbarr\\Documents\\11-Codes\\Scanner\\.claude\\pip-rewrite.ps1",
+            "shell": "powershell"
+          }
+        ]
+      }
+    ]
+  }
+}
