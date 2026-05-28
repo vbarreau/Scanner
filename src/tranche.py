@@ -20,7 +20,7 @@ class Tranche(FileDataset):
         return v1, v2
 
 
-    def normal_axis(self):
+    def normal_axis(self) -> int:
         v1,v2 = self.vec_plan()
         vn = np.cross(v1, v2)
         x,y,z = vn
@@ -28,8 +28,7 @@ class Tranche(FileDataset):
             return 0
         elif y != 0:
             return 1
-        elif z != 0:
-            return 2
+        return 2
         
     @classmethod
     def field_values(cls, filepaths, keyword):

@@ -230,13 +230,14 @@ class Image3D():
         out = Image3D.empty(X,Y,Z)
         n=len(args)
         # Pour chaque point du maillage, on moyenne toutes les cellules auxquel le point appartient
-        for i,x in tqdm(range(len(X)),desc=f'Calculating Mean Image, size {out.shape}',colour='orange'):
+        for i in tqdm(range(len(X)),desc=f'Calculating Mean Image, size {out.shape}',colour='orange'):
             x = X[i]
             for j,y in enumerate(Y):
                 for k,z in enumerate(Z):
                     for obj in args :
                         out.img[i,j,k] += obj.fetch(x,y,z)
-        out = out/n
+        out.img /= n
+        return out
 
     def properties(self):
         m = self.img.min()

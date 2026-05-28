@@ -10,7 +10,7 @@ import sys
 import os
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox
 
 import matplotlib
 matplotlib.use('TkAgg')
@@ -379,7 +379,7 @@ class ScannerApp:
     def _on_browse(self):
         if self._mode is not None:
             self._exit_mode()
-        folder = tk.filedialog.askdirectory(title="Select DICOM folder")
+        folder = filedialog.askdirectory(title="Select DICOM folder")
         if not folder:
             return
         self._folder_var.set(os.path.basename(folder) or folder)
@@ -425,6 +425,7 @@ class ScannerApp:
 
     def _show_first_slice(self):
         """Display the middle slice of the loaded scan on the main canvas."""
+        assert self.scan is not None
         scan = self.scan
         axis = scan.normal_axis
         n = scan.shape[axis]
@@ -439,6 +440,7 @@ class ScannerApp:
         for w in self._slice_sidebar.winfo_children():
             w.destroy()
         self._slice_sidebar.grid()  # reveal
+        assert self._default_sl_var is not None
 
         tk.Label(self._slice_sidebar, textvariable=self._default_sl_var,
                  bg="#111111", fg="#555555",
@@ -458,6 +460,7 @@ class ScannerApp:
 
     def _draw_default_slice(self, idx: int):
         scan = self.scan
+        assert scan is not None
         self._fig.clear()
         ax = self._fig.add_subplot(111)
         ax.set_facecolor("#111111")
@@ -479,7 +482,7 @@ class ScannerApp:
         self._loading = False
         self._progress.config(value=0)
         self._status_var.set(f"Error: {exc}")
-        tk.messagebox.showerror("Load error", str(exc))
+        messagebox.showerror("Load error", str(exc))
         self._refresh_buttons()
 
     # ================================================================== #
@@ -500,6 +503,7 @@ class ScannerApp:
 
     def _build_plot_controls(self):
         self._clear_dyn()
+        assert self.scan is not None
         s = self.scan.shape
 
         frm_sl = self._lframe("Slices")
@@ -534,6 +538,7 @@ class ScannerApp:
     # ── Right canvas ─────────────────────────────────────────────────────
 
     def _build_plot_figure(self):
+        assert self.scan is not None
         self._fig.clear()
         gs = self._fig.add_gridspec(
             2, 3, height_ratios=[4, 1],
@@ -614,6 +619,10 @@ class ScannerApp:
         if event.inaxes is None or id(event.inaxes) not in axes_data:
             self._pixel_label.config(text="")
             return
+        assert self.scan is not None
+        if event.xdata is None or event.ydata is None:
+            self._pixel_label.config(text="")
+            return
         col, row = int(event.xdata + 0.5), int(event.ydata + 0.5)
         img = self.scan.img
         ix = int(self._sl_x.get())
@@ -640,6 +649,7 @@ class ScannerApp:
     def _plot_update_slices(self):
         if not hasattr(self, '_im_px'):
             return
+        assert self.scan is not None
         ix, iy, iz = int(self._sl_x.get()), int(self._sl_y.get()), int(self._sl_z.get())
         img = self.scan.img
         self._im_px.set_data(img[ix, :, :].T)
@@ -655,6 +665,7 @@ class ScannerApp:
         self._canvas.draw_idle()
 
     def _plot_draw_hist(self):
+        assert self.scan is not None
         ax = self._ax_hist
         ax.clear()
         ax.set_facecolor("#1a1a1a")
@@ -665,18 +676,21 @@ class ScannerApp:
             sp.set_edgecolor("#444444")
 
     def _plot_apply_contrast(self):
+        assert self.scan is not None
         self.scan.change_contrast(self._sl_contrast.get())
         self._plot_update_slices()
         self._plot_draw_hist()
         self._redraw()
 
     def _plot_apply_compress(self):
+        assert self.scan is not None
         self.scan.compress(self._sl_seuil.get(), 0.8)
         self._plot_update_slices()
         self._plot_draw_hist()
         self._redraw()
 
     def _plot_apply_clip(self):
+        assert self.scan is not None
         self.scan.img = func_clip(self.scan.img,
                                   self._rs_clip.get_low(),
                                   self._rs_clip.get_high())
@@ -685,6 +699,7 @@ class ScannerApp:
         self._redraw()
 
     def _plot_reset(self):
+        assert self.scan is not None
         self.scan.img = self._plot_img_backup.copy()
         self._plot_update_slices()
         self._plot_draw_hist()
@@ -692,6 +707,7 @@ class ScannerApp:
 
     def _plot_cancel(self):
         """Reset the image to its original state then exit the mode."""
+        assert self.scan is not None
         self.scan.img = self._plot_img_backup.copy()
         self._plot_cleanup_hover()
         self._exit_mode()
@@ -783,6 +799,7 @@ class ScannerApp:
     # ── Right canvas ─────────────────────────────────────────────────────
 
     def _build_anim_figure(self):
+        assert self.scan is not None
         self._fig.clear()
         self._fig.patch.set_facecolor("#111111")
         mip = {
@@ -871,7 +888,7 @@ class ScannerApp:
     #         tk.messagebox.showerror("Preview error", str(exc))
 
     def _anim_generate(self):
-        outpath = tk.filedialog.asksaveasfilename(
+        outpath = filedialog.asksaveasfilename(
             title="Save animation as…",
             defaultextension=".mp4",
             filetypes=[("MP4 video", "*.mp4")],
@@ -890,6 +907,7 @@ class ScannerApp:
         self.root.after(20, lambda: self._do_render(outpath, n_frames, axis, pov, grad))
 
     def _do_render(self, outpath, n_frames, axis, pov, grad):
+        assert self.scan is not None
         self._progress.config(maximum=n_frames, value=0)
 
         def _progress_cb(current, total):
@@ -905,7 +923,7 @@ class ScannerApp:
             self._status_var.set(f"Saved → {os.path.basename(outpath)}")
         except Exception as exc:
             self._status_var.set(f"Render error: {exc}")
-            tk.messagebox.showerror("Render error", str(exc))
+            messagebox.showerror("Render error", str(exc))
         finally:
             self._progress.config(value=0, maximum=100)
 
@@ -942,6 +960,7 @@ class ScannerApp:
     # ── Right canvas ─────────────────────────────────────────────────────
 
     def _build_proj_figure(self):
+        assert self.scan is not None
         self._fig.clear()
         self._fig.patch.set_facecolor("#111111")
         projs = [self.scan.projection(ax, grad=self._proj_grad) for ax in range(3)]
@@ -972,7 +991,7 @@ class ScannerApp:
         self._redraw()
 
     def _proj_save(self):
-        folder = tk.filedialog.askdirectory(title="Save projections to folder…")
+        folder = filedialog.askdirectory(title="Save projections to folder…")
         if not folder:
             return
         for i, proj in enumerate(self._proj_data):
@@ -982,7 +1001,7 @@ class ScannerApp:
                 os.path.join(folder, f"projection_{'XYZ'[i]}.png"),
                 p.astype(np.uint8),
             )
-        tk.messagebox.showinfo("Saved", f"3 projection images saved to:\n{folder}")
+        messagebox.showinfo("Saved", f"3 projection images saved to:\n{folder}")
 
     # ================================================================== #
     #  MODE — Rotate 3D                                                    #
@@ -1061,6 +1080,7 @@ class ScannerApp:
         self._rotate_redraw_mips()
 
     def _rotate_redraw_mips(self):
+        assert self.scan is not None
         img = self.scan.img
         for i, ax in enumerate(self._rot_axes):
             ax.clear()
@@ -1078,6 +1098,7 @@ class ScannerApp:
 
     def _rotate_apply(self, axes: tuple, k: int):
         """Apply np.rot90 with given axes/k and update x/y/z accordingly."""
+        assert self.scan is not None
         self.scan.img = np.rot90(self.scan.img, k=k, axes=axes)
         self.scan.x, self.scan.y, self.scan.z = self._rotated_coords(
             self.scan.x, self.scan.y, self.scan.z, axes, k)
@@ -1113,6 +1134,7 @@ class ScannerApp:
         return coords[0], coords[1], coords[2]
 
     def _rotate_reset(self):
+        assert self.scan is not None
         self.scan.img = self._rotate_img_backup.copy()
         self.scan.x, self.scan.y, self.scan.z = (
             self._rotate_xyz_backup[0].copy(),
@@ -1145,6 +1167,7 @@ class ScannerApp:
 
     def _build_crop_controls(self):
         self._clear_dyn()
+        assert self.scan is not None
         s = self.scan.shape  # (nX, nY, nZ)
         cx, cy, cz = '#00ff99', '#ff9900', '#4499ff'  # match line colours
 
@@ -1166,6 +1189,7 @@ class ScannerApp:
     # ── Right canvas ─────────────────────────────────────────────────────
 
     def _build_crop_figure(self):
+        assert self.scan is not None
         self._fig.clear()
         self._fig.patch.set_facecolor("#111111")
         img = self.scan.img
@@ -1242,7 +1266,7 @@ class ScannerApp:
         y0, y1 = self._rs_crop_y.get_low(), self._rs_crop_y.get_high() + 1
         z0, z1 = self._rs_crop_z.get_low(), self._rs_crop_z.get_high() + 1
         if x0 >= x1 or y0 >= y1 or z0 >= z1:
-            tk.messagebox.showerror("Invalid crop",
+            messagebox.showerror("Invalid crop",
                                  "Min must be strictly less than Max for each axis.")
             return
         self.scan.crop_index([x0, x1], [y0, y1], [z0, z1])
