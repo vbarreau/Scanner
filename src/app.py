@@ -142,11 +142,15 @@ class ScannerApp:
         self.root.resizable(True, True)
 
         self._default_sl_var: tk.IntVar | None = None
+        self._active_tool: str = 'pointer'
+        self._measure_pts: list = []
+        self._tool_btns: dict = {}
 
         self._build_layout()
         self._show_welcome()
         # Bind scroll on the matplotlib canvas (works in all modes)
         self._canvas.get_tk_widget().bind("<MouseWheel>", self._on_canvas_scroll)
+        self._fig.canvas.mpl_connect('button_press_event', self._on_measure_click)
 
     # ------------------------------------------------------------------ #
     #  Layout                                                              #
@@ -177,6 +181,12 @@ class ScannerApp:
         self._slice_sidebar.grid_propagate(False)
         self._slice_sidebar.grid(row=0, column=1, sticky="ns")
         self._slice_sidebar.grid_remove()
+
+        # Tool toolbar — vertical strip on the far right
+        self._tool_bar_frame = tk.Frame(right, width=44, bg="#1c1c1c")
+        self._tool_bar_frame.grid_propagate(False)
+        self._tool_bar_frame.grid(row=0, column=2, sticky="ns")
+        self._build_tool_toolbar(self._tool_bar_frame)
 
         # ── Left panel: static top + scrollable middle + fixed bottom ───
         self._build_left_static()
@@ -308,6 +318,10 @@ class ScannerApp:
         if cancel_cmd is None:
             cancel_cmd = self._exit_mode
         self._default_sl_var = None   # disable canvas scroll in sub-modes
+        self._measure_pts = []
+        self._active_tool = 'pointer'
+        self._update_tool_buttons()
+        self._canvas.get_tk_widget().config(cursor='')
         self._slice_sidebar.grid_remove()
         self._act_frm.pack_forget()
         for w in self._bottom_bar.winfo_children():
@@ -324,6 +338,10 @@ class ScannerApp:
     def _exit_mode(self):
         """Restore action buttons; empty the bottom bar; return to welcome."""
         self._mode = None
+        self._measure_pts = []
+        self._active_tool = 'pointer'
+        self._update_tool_buttons()
+        self._canvas.get_tk_widget().config(cursor='')
         for w in self._bottom_bar.winfo_children():
             w.destroy()
         # Re-pack actions only if they were hidden (pack_forget removes from manager)
@@ -470,6 +488,7 @@ class ScannerApp:
         ax = self._fig.add_subplot(111)
         ax.set_facecolor("#111111")
         show_slice(ax, scan.img, idx, scan.normal_axis, scan.x, scan.y, scan.z)
+        self._draw_measure_overlay(ax)
         self._redraw()
 
     def _on_canvas_scroll(self, event):
@@ -482,6 +501,87 @@ class ScannerApp:
         new_idx = max(0, min(n - 1, self._default_sl_var.get() + delta))
         self._default_sl_var.set(new_idx)
         self._draw_default_slice(new_idx)
+
+    # ------------------------------------------------------------------ #
+    #  Tool toolbar                                                        #
+    # ------------------------------------------------------------------ #
+
+    def _build_tool_toolbar(self, parent: tk.Frame):
+        tk.Frame(parent, height=8, bg="#1c1c1c").pack(fill=tk.X)
+        tools = [
+            ('pointer', '↖', 'Select'),
+            ('measure', '↔', 'Measure distance'),
+        ]
+        for tool_id, symbol, _ in tools:
+            btn = tk.Button(
+                parent, text=symbol,
+                font=("Helvetica", 15),
+                width=2, height=1,
+                relief=tk.FLAT, bd=0,
+                bg='#2a2a2a', fg='white',
+                activebackground='#3a5aaa', activeforeground='white',
+                cursor='hand2',
+                command=lambda t=tool_id: self._set_tool(t),
+            )
+            btn.pack(pady=(2, 0), padx=4, fill=tk.X)
+            self._tool_btns[tool_id] = btn
+            tk.Frame(parent, height=1, bg='#333333').pack(fill=tk.X, padx=4)
+        self._update_tool_buttons()
+
+    def _set_tool(self, tool: str):
+        self._active_tool = tool
+        self._canvas.get_tk_widget().config(
+            cursor='crosshair' if tool == 'measure' else ''
+        )
+        if tool != 'measure':
+            self._measure_pts = []
+            if self._mode is None and self._default_sl_var is not None:
+                self._draw_default_slice(self._default_sl_var.get())
+        self._update_tool_buttons()
+
+    def _update_tool_buttons(self):
+        for tool_id, btn in self._tool_btns.items():
+            active = (tool_id == self._active_tool)
+            btn.config(
+                bg='#4477cc' if active else '#2a2a2a',
+                relief=tk.SUNKEN if active else tk.FLAT,
+            )
+
+    # ------------------------------------------------------------------ #
+    #  Measure distance tool                                               #
+    # ------------------------------------------------------------------ #
+
+    def _on_measure_click(self, event):
+        if self._active_tool != 'measure':
+            return
+        if self._mode is not None or self.scan is None:
+            return
+        if event.inaxes is None or event.xdata is None or event.ydata is None:
+            return
+        if event.button != 1:
+            return
+        if len(self._measure_pts) >= 2:
+            self._measure_pts = []
+        self._measure_pts.append((event.xdata, event.ydata))
+        if self._default_sl_var is not None:
+            self._draw_default_slice(self._default_sl_var.get())
+
+    def _draw_measure_overlay(self, ax):
+        if not self._measure_pts:
+            return
+        xs = [p[0] for p in self._measure_pts]
+        ys = [p[1] for p in self._measure_pts]
+        ax.plot(xs, ys, 'o', color='#ff4444', markersize=7, zorder=10,
+                markeredgecolor='white', markeredgewidth=0.8)
+        if len(self._measure_pts) == 2:
+            ax.plot(xs, ys, color='#ff4444', linewidth=1.5,
+                    linestyle='--', zorder=9)
+            dist = np.sqrt((xs[1] - xs[0]) ** 2 + (ys[1] - ys[0]) ** 2)
+            mx, my = (xs[0] + xs[1]) / 2, (ys[0] + ys[1]) / 2
+            ax.text(mx, my, f' {dist:.1f} mm', color='white', fontsize=9,
+                    zorder=11,
+                    bbox=dict(facecolor='#1a1a1a', alpha=0.75,
+                              pad=2, edgecolor='none'))
 
     def _on_load_error(self, exc: Exception):
         self._loading = False
